@@ -1,7 +1,7 @@
 # V1 release candidate
 
 - Branch: `work/retrieval-hill-climb`
-- Verified code commit: `17159ff`
+- Verified code commit: `8576ce0`
 - Version: `0.1.0`
 - Supported runtime: OpenCode 2 (`>=2.2.0 <3`), tested with 2.2.5; Node 22.18+
 - Packed artifact: `opencode-fast-context-0.1.0.tgz`, 29 files, SHA-256 `d4d47e9da18c8cfa7e28e3f5382d2a3ec906bde5ecd8f0336a160c4ff2201a51`
@@ -26,14 +26,14 @@
 - 59 tests
 - build
 - mocked OpenCode 2 API registration and tool call
-- real OpenCode 2.2.5 runtime load of `dist/index.js` (temporary HOME, invalid model, no provider call)
+- real OpenCode 2.2.5 runtime load of `dist/index.js` (isolated HOME/XDG, invalid model, no provider call)
 - package allowlist
 - no source, test, benchmark, or source-map files
 - tarball, tracked-tree, and Git-history secret scans
 - no cross-platform absolute local paths in packed files
 - clean working tree
 
-CI `.github/workflows/verify.yml` runs the same command on Node 22, 24, and 26 with OpenCode installed. Its result for this branch is reported in the channel; if the run is unavailable, the local verification is the evidence.
+CI `.github/workflows/verify.yml` runs the same command on Node 22, 24, and 26 with OpenCode 2.2.5 installed. The run for `8576ce0` passed all three jobs: https://github.com/enkay01/opencode-fast-context/actions/runs/41743044813. Earlier runs failed while the CI installer and XDG isolation were corrected.
 
 ## Packed files (29)
 
