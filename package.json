@@ -33,8 +33,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test test/*.test.ts",
     "bench": "node bench/run.ts",
-    "bench:b0": "node bench/b0.ts",
-    "prepare": "npm run build"
+    "bench:b0": "node bench/b0.ts"
   },
   "engines": {
     "opencode": ">=2.0.0",
