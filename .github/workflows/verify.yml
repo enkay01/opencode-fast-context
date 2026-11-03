@@ -23,7 +23,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Install OpenCode 2
         run: |
-          curl -fsSL https://opencode.ai/install | bash -s -- --version 2.2.5
+          curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
       - run: npm ci
       - run: npm run verify:release
