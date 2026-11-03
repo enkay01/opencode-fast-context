@@ -2,6 +2,7 @@ import { DEFAULT_LIMITS, type Evidence, type EvidenceRange, type Limits, type Pr
 import { dirname } from "node:path";
 import { discover, readCandidateExcerpt, type Candidate } from "./discover.ts";
 import type { DecisionProvider } from "../providers/types.ts";
+import { sanitizeForProvider } from "../providers/redact.ts";
 
 export interface SearchOptions {
   root: string;
@@ -36,6 +37,8 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
     abstained: false,
     abstainThreshold: limits.minDecision as number | null,
     discoveryTimedOut: false,
+    redactedCandidates: 0,
+    rejectedCandidates: 0,
   };
   const providerInfo: ProviderInfo = {
     id: options.provider?.id ?? "none",
@@ -132,14 +135,33 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       })),
     );
     const sendable = scoredCandidates.filter((item) => item.checked !== null);
+    let redactedCandidates = 0;
+    let rejectedCandidates = 0;
+    const safe = sendable.flatMap(({ candidate, checked }) => {
+      const payload = sanitizeForProvider(checked?.text ?? candidate.excerpt);
+      if (!payload.ok) {
+        rejectedCandidates += 1;
+        return [];
+      }
+      if (payload.redactions > 0) redactedCandidates += 1;
+      return [{ candidate, code: payload.text }];
+    });
+    diagnostics.redactedCandidates = redactedCandidates;
+    diagnostics.rejectedCandidates = rejectedCandidates;
+
+    if (safe.length === 0) {
+      status = "fallback_required";
+      reason = "no candidate passed outbound content filtering; continue with ordinary search";
+    }
 
     try {
+      if (safe.length === 0) throw new Error("no sendable candidates");
       const scoring = await options.provider.score(
         query,
-        sendable.map(({ candidate, checked }) => ({
+        safe.map(({ candidate, code }) => ({
           id: candidate.id,
           path: candidate.path,
-          code: checked?.text ?? candidate.excerpt,
+          code,
         })),
         {
           deadline,

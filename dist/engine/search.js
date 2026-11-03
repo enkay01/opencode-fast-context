@@ -1,6 +1,7 @@
 import { DEFAULT_LIMITS } from "../types.js";
 import { dirname } from "node:path";
 import { discover, readCandidateExcerpt } from "./discover.js";
+import { sanitizeForProvider } from "../providers/redact.js";
 export async function searchRepository(options) {
     const started = Date.now();
     const limits = {
@@ -17,6 +18,8 @@ export async function searchRepository(options) {
         abstained: false,
         abstainThreshold: limits.minDecision,
         discoveryTimedOut: false,
+        redactedCandidates: 0,
+        rejectedCandidates: 0,
     };
     const providerInfo = {
         id: options.provider?.id ?? "none",
@@ -93,11 +96,31 @@ export async function searchRepository(options) {
             }, limits.maxFileBytes),
         })));
         const sendable = scoredCandidates.filter((item) => item.checked !== null);
+        let redactedCandidates = 0;
+        let rejectedCandidates = 0;
+        const safe = sendable.flatMap(({ candidate, checked }) => {
+            const payload = sanitizeForProvider(checked?.text ?? candidate.excerpt);
+            if (!payload.ok) {
+                rejectedCandidates += 1;
+                return [];
+            }
+            if (payload.redactions > 0)
+                redactedCandidates += 1;
+            return [{ candidate, code: payload.text }];
+        });
+        diagnostics.redactedCandidates = redactedCandidates;
+        diagnostics.rejectedCandidates = rejectedCandidates;
+        if (safe.length === 0) {
+            status = "fallback_required";
+            reason = "no candidate passed outbound content filtering; continue with ordinary search";
+        }
         try {
-            const scoring = await options.provider.score(query, sendable.map(({ candidate, checked }) => ({
+            if (safe.length === 0)
+                throw new Error("no sendable candidates");
+            const scoring = await options.provider.score(query, safe.map(({ candidate, code }) => ({
                 id: candidate.id,
                 path: candidate.path,
-                code: checked?.text ?? candidate.excerpt,
+                code,
             })), {
                 deadline,
                 concurrency: limits.concurrency,
@@ -375,4 +398,3 @@ function clipSections(sections, budget) {
 function round(value) {
     return Math.round(value * 1000) / 1000;
 }
-//# sourceMappingURL=search.js.map

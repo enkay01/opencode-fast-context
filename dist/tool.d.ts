@@ -1,13 +1,16 @@
-import { type FastContextConfig } from "./config.ts";
+import { type FastContextConfig, type ProviderOverrides } from "./config.ts";
 import type { SearchResult } from "./types.ts";
 export interface RunOptions {
     root: string;
     query: string;
     maxFiles?: number;
     config?: FastContextConfig;
+    /** Internal test seam. Never populated from plugin options. */
+    overrides?: ProviderOverrides;
     signal?: AbortSignal;
 }
 export declare function runFastContext(options: RunOptions): Promise<SearchResult>;
+export declare function readAutoInvoke(config: FastContextConfig | undefined): "suggest" | "off";
 export declare const TOOL_DESCRIPTION: string;
 export declare const TOOL_INPUT_SCHEMA: {
     readonly type: "object";

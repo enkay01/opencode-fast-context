@@ -680,4 +680,3 @@ export async function readCandidateExcerpt(root, candidate, maxBytes) {
         sections,
     };
 }
-//# sourceMappingURL=discover.js.map

@@ -294,4 +294,3 @@ export function identifiersIn(code, limit = 12) {
         .slice(0, limit)
         .map(([name]) => name);
 }
-//# sourceMappingURL=tokenize.js.map

@@ -49,6 +49,10 @@ export interface RetrievalDiagnostics {
   abstained: boolean;
   abstainThreshold: number | null;
   discoveryTimedOut: boolean;
+  /** Candidates whose payload was redacted before the provider saw it. */
+  redactedCandidates?: number;
+  /** Candidates rejected before the provider saw them. */
+  rejectedCandidates?: number;
 }
 
 export interface SearchResult {
