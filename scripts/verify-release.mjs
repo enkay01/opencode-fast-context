@@ -20,6 +20,7 @@ const ALLOWED_DUMMIES = [
   "AKIAIOSFODNN7EXAMPLE",
   "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
   "abcdefghijklmnopqrstuvwxyz",
+  "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
 ];
 
 const SECRET_PATTERNS = [
