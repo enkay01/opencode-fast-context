@@ -44,7 +44,14 @@ try {
     })}\n`,
   );
 
-  const env = { ...process.env, HOME: home };
+  const env = {
+    ...process.env,
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_DATA_HOME: join(home, ".local", "share"),
+    XDG_STATE_HOME: join(home, ".local", "state"),
+    XDG_CACHE_HOME: join(home, ".cache"),
+  };
   delete env.TYPESAFE_API_KEY;
   const run = spawnSync(
     "opencode",
@@ -63,10 +70,13 @@ try {
   const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
 
   assert.ok(!/failed to load plugin/i.test(output), "OpenCode reported a plugin load failure");
-  assert.ok(/loading plugin/i.test(output), "OpenCode did not report loading the plugin");
+  assert.ok(
+    /loading plugin/i.test(output),
+    `OpenCode did not report loading the plugin. Output:\n${output.slice(-2000)}`,
+  );
   assert.ok(
     output.includes("opencode-fast-context") && output.includes("dist/index.js"),
-    "OpenCode did not load this checkout's dist/index.js",
+    `OpenCode did not load this checkout's dist/index.js. Output:\n${output.slice(-2000)}`,
   );
 
   console.log(`runtime smoke: OpenCode ${version.join(".")} loaded ${repo}/dist/index.js without a provider call`);
