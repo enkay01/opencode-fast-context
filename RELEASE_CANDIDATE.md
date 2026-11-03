@@ -18,6 +18,16 @@
 | 5. Secret-scan exceptions skipped whole lines; absolute-path check was macOS-only | Exceptions now remove only exact dummy values before matching, and the synthetic key block is removed only when it contains the known dummy body. Absolute-path detection covers `/Users/`, `/home/`, `/root/`, `/private/tmp/`, `/var/folders/`, Windows drive paths, and UNC prefixes. | `scripts/verify-release.mjs`; a second real credential on a line containing a dummy would still match. |
 | 6. Missing credential labelled `local ranking` | `src/tool.ts` prints `provider: not configured` for provider `none` with `fallback_required`; the footer no longer claims local results. | `test/provider-boundary.test.ts`: “a missing credential is not described as local ranking”. |
 
+## Reproduce each fix
+
+```bash
+node --test test/provider-boundary.test.ts   # findings 1, 6
+node --test test/redact.test.ts              # finding 2
+node --test test/setup.test.ts               # finding 3
+node scripts/smoke-runtime.mjs               # finding 4 (OpenCode 2.2.5)
+npm run verify:release                       # finding 5 and full gate
+```
+
 ## Verification
 
 `npm run verify:release` passed on `17159ff` from a clean tree:
