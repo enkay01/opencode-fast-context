@@ -6,7 +6,8 @@ Fast Context is the pattern where a coding agent delegates codebase research to 
 
 ## Status
 
-- The plugin and benchmark are implemented and tested (`npm test`, 14 tests).
+- The plugin and benchmark are implemented and tested (`npm test`).
+- A staged retrieval hill-climb is implemented; `climb3` is the default candidate and has not yet been evaluated on the frozen validation split.
 - Live verification: OpenCode 2.2.5 loads the plugin and a DeepSeek session calls `fast_context_search`.
 - Measured on a small pinned corpus: Jev is 73–89% faster than stock search, but on four fresh validation tasks its recall is 0.50 against 1.00 for stock OpenCode. It does return `no_match` for both absent-answer tasks, at the cost of one false negative. See [BENCHMARK.md](BENCHMARK.md).
 - Recommendation: use it explicitly while it is measured, not as a default replacement for search.

@@ -2,6 +2,8 @@
 
 Measured 2026-11-03 on one Apple Silicon Mac, OpenCode 2.2.5, Node 26.5.0. One run per task per arm. Re-run before citing these numbers; they do not establish general parity.
 
+> **Status note:** these tables were measured before the staged hill-climb landed (`8fad81f`). The default engine is now `climb3`; the results below describe the earlier stage. The `validation` split remains frozen for the pre-registered final run in [EXPERIMENT_PROTOCOL.md](EXPERIMENT_PROTOCOL.md) and was not reused.
+
 ## Method
 
 - **B0**: unmodified OpenCode with `opencode-go/deepseek-v4.1-flash`, normal tools, fresh `opencode run --standalone` process per task. Prompt asks only for `path:start-end` lines or an exact `NO_ANSWER`.
