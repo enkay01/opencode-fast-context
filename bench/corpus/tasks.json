@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "repos": {
+    "ripgrep": {
+      "url": "https://github.com/BurntSushi/ripgrep",
+      "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
+      "tag": "15.2.0",
+      "path": "bench/repos/ripgrep"
+    },
+    "opencode": {
+      "url": "https://github.com/sst/opencode",
+      "commit": "6d1c444b8c53da667b51ed45b0a7c0aca1174674",
+      "path": "bench/repos/opencode"
+    }
+  },
+  "tasks": [
+    {
+      "id": "rg-mmap-choice",
+      "repo": "ripgrep",
+      "split": "tuning",
+      "question": "Where does ripgrep decide whether to use memory maps for searching files?",
+      "labels": [
+        { "path": "crates/core/flags/hiargs.rs", "ranges": [{ "start": 222, "end": 247 }] }
+      ]
+    },
+    {
+      "id": "rg-glob-overrides",
+      "repo": "ripgrep",
+      "split": "tuning",
+      "question": "How are --glob and --iglob command line patterns turned into the override matcher?",
+      "labels": [
+        { "path": "crates/core/flags/hiargs.rs", "ranges": [{ "start": 1208, "end": 1232 }] }
+      ]
+    },
+    {
+      "id": "rg-walker-ignore-config",
+      "repo": "ripgrep",
+      "split": "tuning",
+      "question": "Where does ripgrep configure which ignore files, globs, and hidden-file rules the directory walker obeys?",
+      "labels": [
+        { "path": "crates/core/flags/hiargs.rs", "ranges": [{ "start": 874, "end": 910 }] }
+      ]
+    },
+    {
+      "id": "rg-max-columns",
+      "repo": "ripgrep",
+      "split": "held-out",
+      "question": "Where does ripgrep truncate a printed line that exceeds the maximum column width?",
+      "labels": [
+        {
+          "path": "crates/printer/src/standard.rs",
+          "ranges": [
+            { "start": 1044, "end": 1060 },
+            { "start": 1562, "end": 1564 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "oc-config-discovery",
+      "repo": "opencode",
+      "split": "tuning",
+      "question": "Where does OpenCode discover which opencode.json or opencode.jsonc configuration files apply to a project?",
+      "labels": [
+        {
+          "path": "packages/core/src/config/discovery.ts",
+          "ranges": [
+            { "start": 12, "end": 27 },
+            { "start": 59, "end": 95 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "oc-default-model",
+      "repo": "opencode",
+      "split": "tuning",
+      "question": "How does the app choose which model to use when the session did not request one?",
+      "labels": [
+        { "path": "packages/core/src/model.ts", "ranges": [{ "start": 299, "end": 305 }] }
+      ]
+    },
+    {
+      "id": "oc-mcp-config-schema",
+      "repo": "opencode",
+      "split": "tuning",
+      "question": "Where is the configuration schema for local and remote MCP servers defined?",
+      "labels": [
+        { "path": "packages/core/src/v1/config/mcp.ts", "ranges": [{ "start": 6, "end": 68 }] }
+      ]
+    },
+    {
+      "id": "oc-plugin-tool-registry",
+      "repo": "opencode",
+      "split": "held-out",
+      "question": "Where can a plugin list, add, update, or remove the tools it contributes to a session?",
+      "labels": [
+        { "path": "packages/plugin/src/promise/tool.ts", "ranges": [{ "start": 1, "end": 45 }] }
+      ]
+    },
+    {
+      "id": "rg-absent-index",
+      "repo": "ripgrep",
+      "split": "held-out",
+      "question": "Where does ripgrep build a persistent on-disk search index that it reuses between runs?",
+      "absent": true,
+      "labels": []
+    },
+    {
+      "id": "oc-absent-vector-index",
+      "repo": "opencode",
+      "split": "held-out",
+      "question": "Where does OpenCode build a persistent vector index of the workspace for semantic search?",
+      "absent": true,
+      "labels": []
+    }
+  ]
+}
