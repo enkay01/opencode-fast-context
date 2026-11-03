@@ -51,7 +51,11 @@ export const TOOL_INPUT_SCHEMA = {
     },
 };
 export function formatForModel(result) {
-    const provider = result.provider.id === "none" ? "local ranking" : `${result.provider.id}:${result.provider.model}`;
+    const provider = result.provider.id === "none"
+        ? result.status === "fallback_required"
+            ? "not configured"
+            : "none"
+        : `${result.provider.id}:${result.provider.model}`;
     const header = [
         `status: ${result.status}`,
         `provider: ${provider}`,
@@ -73,7 +77,7 @@ export function formatForModel(result) {
         return `${index + 1}. ${evidence.path}:${ranges}  (${scores})\n${indent(excerptLines(evidence.excerpt, 6))}`;
     });
     const footer = result.status === "fallback_required"
-        ? "\nThe decision provider failed. These are unranked lexical candidates; continue with the normal search tools."
+        ? "\nFast Context could not produce ranked evidence. Continue with the ordinary search tools."
         : "";
     return `${header.join("\n")}\n\n${body.join("\n\n")}${footer}`;
 }

@@ -57,19 +57,35 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function scrubDummies(line) {
+  let output = line;
+  for (const dummy of ALLOWED_DUMMIES) output = output.split(dummy).join("");
+  return output;
+}
+
 function scan(text, where) {
+  // Remove only the exact synthetic fixture block, never a real key.
+  const fixture =
+    /-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END PRIVATE KEY-----/g;
+  const fixtureMultiline =
+    /-----BEGIN PRIVATE KEY-----\s*\n?\s*MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\s*\n?\s*-----END PRIVATE KEY-----/g;
+  text = text.replace(fixture, "").replace(fixtureMultiline, "");
   for (const line of text.split("\n")) {
-    if (ALLOWED_DUMMIES.some((dummy) => line.includes(dummy))) continue;
+    const normalized = scrubDummies(line);
     for (const pattern of SECRET_PATTERNS) {
-      if (pattern.test(line)) throw new Error(`credential-shaped text in ${where}: ${line.slice(0, 80)}`);
+      if (pattern.test(normalized)) throw new Error(`credential-shaped text in ${where}: ${line.slice(0, 80)}`);
     }
   }
 }
+
+const ABSOLUTE_PATH =
+  /(?:\/Users\/|\/home\/|\/root\/|\/private\/tmp\/|\/var\/folders\/|[A-Za-z]:\\|\\\\\?\\)/;
 
 step("typecheck", () => run("npm", ["run", "-s", "typecheck"]));
 step("tests", () => run("npm", ["test"]));
 step("build", () => run("npm", ["run", "-s", "build"]));
 step("OpenCode 2 API smoke", () => run("node", ["scripts/smoke-opencode.mjs"]));
+step("OpenCode 2 runtime load smoke", () => run("node", ["scripts/smoke-runtime.mjs"]));
 
 const packJson = JSON.parse(
   run("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"]),
@@ -122,7 +138,7 @@ try {
     for (const file of files.split("\n").filter(Boolean)) {
       if (file.endsWith("package.json")) continue;
       const content = run("cat", [file]);
-      assert(!content.includes("/Users/"), `absolute user path in ${relative(work, file)}`);
+      assert(!ABSOLUTE_PATH.test(content), `absolute local path in ${relative(work, file)}`);
       assert(!content.includes("sourceMappingURL"), `source map reference in ${relative(work, file)}`);
     }
   });

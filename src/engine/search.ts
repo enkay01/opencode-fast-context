@@ -269,11 +269,18 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
     const clipped = clipSections(checked.sections, remaining);
     if (clipped.sections.length === 0) continue;
 
+    const rawExcerpt = clipped.sections.map((section) => section.text).join("\n…\n");
+    const finalPayload = sanitizeForProvider(rawExcerpt);
+    if (!finalPayload.ok) {
+      truncated = true;
+      continue;
+    }
+
     evidence.push({
       path: candidate.path,
       ranges: clipped.sections.map((section) => section.range),
       digest: checked.digest,
-      excerpt: clipped.sections.map((section) => section.text).join("\n…\n"),
+      excerpt: finalPayload.text,
       scores: {
         lexical: round(candidate.lexicalScore),
         decision: candidate.decisionScore === null ? null : round(candidate.decisionScore),

@@ -71,3 +71,50 @@ test("setup supports the global scope with XDG_CONFIG_HOME", async () => {
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("setup ignores comments and unrelated fast-context text", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fast-context-setup-"));
+  const config = join(root, "opencode.jsonc");
+  await writeFile(
+    config,
+    [
+      "{",
+      '  // fast-context must still be added even though this comment mentions it',
+      '  "note": "fast-context",',
+      '  "plugins": ["existing-plugin"],',
+      '  "model": "x"',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const env = {
+    ...process.env,
+    FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",
+    TYPESAFE_API_KEY: "dummy-setup-key",
+  };
+  try {
+    execFileSync(
+      "node",
+      [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "project", "--package", target],
+      { cwd: root, env, encoding: "utf8" },
+    );
+    const text = await readFile(config, "utf8");
+    assert.ok(text.includes(target));
+    assert.match(text, /comment mentions it/);
+    assert.match(text, /existing-plugin/);
+
+    const setup = await import("../scripts/setup-opencode.mjs");
+    const parsed = setup.parseConfig(text);
+    const entries = setup.pluginEntries(parsed);
+    assert.equal(entries.filter((entry: unknown) => setup.isFastContextEntry(entry, target)).length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("JSONC stripping respects comments inside strings", async () => {
+  const setup = await import("../scripts/setup-opencode.mjs");
+  const parsed = setup.parseConfig('{ // comment\n "url": "https://example.invalid/a//b", /* x */ "n": 1, }');
+  assert.equal(parsed.url, "https://example.invalid/a//b");
+  assert.equal(parsed.n, 1);
+});

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolveProvider } from "../src/config.ts";
-import { runFastContext } from "../src/tool.ts";
+import { formatForModel, runFastContext } from "../src/tool.ts";
 import { searchRepository } from "../src/engine/search.ts";
 import type { DecisionProvider } from "../src/providers/types.ts";
 import { makeFixture } from "./fixture.ts";
@@ -89,4 +89,74 @@ test("the public configuration cannot redirect the bearer token to another endpo
     concurrency: 1,
   });
   assert.equal(called, "https://api.typesafe.ai/v1/systemone");
+});
+
+const GITHUB_MARKER = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+
+test("final tool content and metadata redact credential-like evidence", async () => {
+  const fixture = await makeFixture({
+    "src/leak.ts": `export const API_KEY = "${GITHUB_MARKER}"\nexport function retryDelay() { return 1 }\n`,
+  });
+  const previousKey = process.env.TYPESAFE_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.TYPESAFE_API_KEY = "dummy-key";
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        model: "jev-test",
+        answers: { relevant: { type: "noul", noul: 0.95 } },
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+  try {
+    const result = await runFastContext({ root: fixture.root, query: "API_KEY" });
+    assert.equal(result.status, "complete");
+    const serialized = JSON.stringify(result);
+    const formatted = formatForModel(result);
+    assert.ok(!serialized.includes(GITHUB_MARKER), "metadata leaked the credential");
+    assert.ok(!formatted.includes(GITHUB_MARKER), "tool content leaked the credential");
+    assert.ok(result.results.some((evidence) => evidence.excerpt.includes("[REDACTED")));
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previousKey;
+    await fixture.cleanup();
+  }
+});
+
+test("fallback evidence also redacts credential-like content", async () => {
+  const fixture = await makeFixture({
+    "src/leak.ts": `export const API_KEY = "${GITHUB_MARKER}"\nexport function retryDelay() { return 1 }\n`,
+  });
+  const previousKey = process.env.TYPESAFE_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.TYPESAFE_API_KEY = "dummy-key";
+  globalThis.fetch = (async () => new Response("hostile", { status: 503 })) as typeof fetch;
+  try {
+    const result = await runFastContext({ root: fixture.root, query: "API_KEY" });
+    assert.equal(result.status, "fallback_required");
+    assert.ok(!JSON.stringify(result).includes(GITHUB_MARKER));
+    assert.ok(!formatForModel(result).includes(GITHUB_MARKER));
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previousKey;
+    await fixture.cleanup();
+  }
+});
+
+test("a missing credential is not described as local ranking", async () => {
+  const fixture = await makeFixture({ "src/a.ts": "export const a = 1\n" });
+  const previous = process.env.TYPESAFE_API_KEY;
+  delete process.env.TYPESAFE_API_KEY;
+  try {
+    const result = await runFastContext({ root: fixture.root, query: "a" });
+    const text = formatForModel(result);
+    assert.match(text, /^provider: not configured$/m);
+    assert.ok(!/provider: local ranking/.test(text));
+  } finally {
+    if (previous !== undefined) process.env.TYPESAFE_API_KEY = previous;
+    await fixture.cleanup();
+  }
 });

@@ -43,7 +43,8 @@
     "smoke:opencode": "node scripts/smoke-opencode.mjs",
     "bench": "node bench/run.ts",
     "bench:b0": "node bench/b0.ts",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "smoke:runtime": "node scripts/smoke-runtime.mjs"
   },
   "engines": {
     "opencode": ">=2.2.0 <3",

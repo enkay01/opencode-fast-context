@@ -30,7 +30,7 @@ async function callSystemOne(providerId, url, headers, model, query, candidate, 
         throw new ProviderError(providerId, `request failed (${code})`);
     }
     if (!response.ok) {
-        const requestId = response.headers.get("x-request-id");
+        const requestId = safeRequestId(response.headers.get("x-request-id"));
         throw new ProviderError(providerId, `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`, response.status);
     }
     const json = (await response.json());
@@ -49,6 +49,14 @@ async function callSystemOne(providerId, url, headers, model, query, candidate, 
         }
         : null;
     return { noul: clamp01(answer.noul), model: payload.model ?? model, usage };
+}
+function safeRequestId(value) {
+    if (!value)
+        return null;
+    // Strict allow-list: no underscores or token prefixes.
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(value))
+        return null;
+    return value;
 }
 function clamp01(value) {
     return Math.min(1, Math.max(0, value));
@@ -88,7 +96,7 @@ async function callChoice(providerId, url, headers, model, query, options, timeo
         throw new ProviderError(providerId, `request failed (${code})`);
     }
     if (!response.ok) {
-        const requestId = response.headers.get("x-request-id");
+        const requestId = safeRequestId(response.headers.get("x-request-id"));
         throw new ProviderError(providerId, `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`, response.status);
     }
     const json = (await response.json());

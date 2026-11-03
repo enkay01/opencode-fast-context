@@ -59,7 +59,7 @@ async function callSystemOne(
   }
 
   if (!response.ok) {
-    const requestId = response.headers.get("x-request-id");
+    const requestId = safeRequestId(response.headers.get("x-request-id"));
     throw new ProviderError(
       providerId,
       `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`,
@@ -89,6 +89,13 @@ async function callSystemOne(
     : null;
 
   return { noul: clamp01(answer.noul), model: payload.model ?? model, usage };
+}
+
+function safeRequestId(value: string | null): string | null {
+  if (!value) return null;
+  // Strict allow-list: no underscores or token prefixes.
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(value)) return null;
+  return value;
 }
 
 function clamp01(value: number): number {
@@ -140,7 +147,7 @@ async function callChoice(
   }
 
   if (!response.ok) {
-    const requestId = response.headers.get("x-request-id");
+    const requestId = safeRequestId(response.headers.get("x-request-id"));
     throw new ProviderError(
       providerId,
       `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`,

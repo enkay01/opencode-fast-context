@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const PLUGIN_ID = "fast-context";
+const PACKAGE_NAME = "opencode-fast-context";
 const DEFAULT_PACKAGE = `file://${resolve(process.cwd())}`;
 
 function parseArgs(argv) {
@@ -19,9 +20,7 @@ function parseArgs(argv) {
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
-    } else {
-      fail(`unknown argument: ${arg}`);
-    }
+    } else fail(`unknown argument: ${arg}`);
   }
   if (args.scope !== "project" && args.scope !== "global") fail("--scope must be project or global");
   return args;
@@ -43,15 +42,12 @@ function fail(message) {
 function configPath(scope) {
   if (scope === "global") {
     const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
-    const directory = join(configHome, "opencode");
-    const jsonc = join(directory, "opencode.jsonc");
-    return { path: existsSync(jsonc) ? jsonc : join(directory, "opencode.json"), directory, create: !existsSync(jsonc) };
+    const jsonc = join(configHome, "opencode", "opencode.jsonc");
+    return { path: existsSync(jsonc) ? jsonc : join(configHome, "opencode", "opencode.json") };
   }
   const cwd = process.cwd();
   const jsonc = join(cwd, "opencode.jsonc");
-  if (existsSync(jsonc)) return { path: jsonc, directory: cwd, create: false };
-  const json = join(cwd, "opencode.json");
-  return { path: json, directory: cwd, create: false };
+  return { path: existsSync(jsonc) ? jsonc : join(cwd, "opencode.json") };
 }
 
 function checkPrerequisites() {
@@ -70,50 +66,192 @@ function credentialPresent() {
   return typeof process.env.TYPESAFE_API_KEY === "string" && process.env.TYPESAFE_API_KEY.length > 0;
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+/** Remove JSONC comments and trailing commas without touching string contents. */
+export function stripJsonc(text) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
 
-function hasPlugin(text, target) {
-  return new RegExp(`["']${escapeRegExp(target)}["']`).test(text) ||
-    new RegExp(`["']${escapeRegExp(PLUGIN_ID)}["']`).test(text);
-}
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
 
-function addPlugin(text, target) {
-  const array = /"plugins"\s*:\s*\[([\s\S]*?)\]/.exec(text);
-  if (array) {
-    const content = array[1].trim();
-    if (content.length === 0) {
-      return text.replace(array[0], `"plugins": [\n    "${target}"\n  ]`);
+    if (lineComment) {
+      if (char === "\n") {
+        lineComment = false;
+        output += char;
+      }
+      continue;
     }
-    return text.replace(array[0], `"plugins": [\n    "${target}",${array[1]}]`);
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      } else if (char === "\n") {
+        output += char;
+      }
+      continue;
+    }
+    if (inString) {
+      output += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      output += char;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    output += char;
+  }
+
+  return output.replace(/,(\s*[}\]])/g, "$1");
+}
+
+export function parseConfig(text) {
+  const parsed = JSON.parse(stripJsonc(text));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("configuration must be a JSON object");
+  }
+  return parsed;
+}
+
+export function pluginEntries(config) {
+  const plugins = config.plugins;
+  if (plugins === undefined) return [];
+  if (!Array.isArray(plugins)) throw new Error("plugins must be an array");
+  return plugins;
+}
+
+export function entrySpec(entry) {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && typeof entry.package === "string") return entry.package;
+  return null;
+}
+
+export function isFastContextEntry(entry, target) {
+  const spec = entrySpec(entry);
+  if (!spec) return false;
+  return (
+    spec === target ||
+    spec === PLUGIN_ID ||
+    spec === PACKAGE_NAME ||
+    spec.startsWith(`${PACKAGE_NAME}@`) ||
+    spec.startsWith(`${PACKAGE_NAME}/`)
+  );
+}
+
+/** Find the `plugins` array bounds in the original text, ignoring comments and strings. */
+function findPluginsArray(text) {
+  let inString = false;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (lineComment) {
+      if (char === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      if (text.startsWith('"plugins"', index)) {
+        let cursor = index + '"plugins"'.length;
+        while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1;
+        if (text[cursor] === ":") {
+          cursor += 1;
+          while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1;
+          if (text[cursor] === "[") {
+            const open = cursor;
+            let depth = 0;
+            let arrayString = false;
+            let arrayEscaped = false;
+            for (let scan = open; scan < text.length; scan += 1) {
+              const item = text[scan];
+              if (arrayString) {
+                if (arrayEscaped) arrayEscaped = false;
+                else if (item === "\\") arrayEscaped = true;
+                else if (item === '"') arrayString = false;
+                continue;
+              }
+              if (item === '"') arrayString = true;
+              else if (item === "[") depth += 1;
+              else if (item === "]") {
+                depth -= 1;
+                if (depth === 0) return { open, close: scan };
+              }
+            }
+          }
+        }
+      }
+      inString = true;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+    } else if (char === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+    }
+  }
+  return null;
+}
+
+function formatEntries(entries) {
+  if (entries.length === 0) return "[]";
+  return `[\n    ${entries.map((entry) => JSON.stringify(entry)).join(",\n    ")}\n  ]`;
+}
+
+export function writePlugins(text, entries) {
+  const array = findPluginsArray(text);
+  if (array) {
+    return `${text.slice(0, array.open)}${formatEntries(entries)}${text.slice(array.close + 1)}`;
   }
   const close = text.lastIndexOf("}");
-  if (close < 0) fail("configuration is not a JSON object");
+  if (close < 0) throw new Error("configuration is not a JSON object");
   const prefix = text.slice(0, close).replace(/\s*$/, "");
   const comma = prefix.endsWith("{") || prefix.endsWith(",") ? "" : ",";
-  return `${prefix}${comma}\n  "plugins": ["${target}"]\n}${text.slice(close + 1)}`;
-}
-
-function removePlugin(text, target) {
-  return text.replace(/("plugins"\s*:\s*\[)([\s\S]*?)(\])/, (match, open, body, close) => {
-    let next = String(body);
-    for (const value of [target, PLUGIN_ID]) {
-      next = next.replace(new RegExp(`\\s*"${escapeRegExp(value)}"\\s*,?`), "");
-    }
-    next = next.replace(/,\s*$/, "");
-    return `${open}${next}${close}`;
-  });
+  return `${prefix}${comma}\n  "plugins": ${formatEntries(entries)}\n}${text.slice(close + 1)}`;
 }
 
 async function verifyIdentity(target) {
-  const entry = target.startsWith("file://") ? new URL(target) : null;
-  if (!entry) return;
+  if (!target.startsWith("file://")) return;
+  const entry = new URL(target);
   const modulePath = join(entry.pathname, "dist", "index.js");
   if (!existsSync(modulePath)) fail(`built plugin not found at ${modulePath}; run npm run build first`);
   const module = await import(pathToFileURL(modulePath).href);
-  const id = module.default?.id;
-  if (id !== PLUGIN_ID) fail(`plugin identity mismatch: expected ${PLUGIN_ID}, found ${String(id)}`);
+  if (module.default?.id !== PLUGIN_ID) {
+    fail(`plugin identity mismatch: expected ${PLUGIN_ID}, found ${String(module.default?.id)}`);
+  }
 }
 
 async function atomicWrite(path, content) {
@@ -135,20 +273,34 @@ async function main() {
 
   const target = args.package;
   const config = configPath(args.scope);
-  const existing = existsSync(config.path) ? await readFile(config.path, "utf8") : "{}\n";
-  const already = hasPlugin(existing, target);
+  const existingText = existsSync(config.path) ? await readFile(config.path, "utf8") : "{}\n";
+  let parsed;
+  try {
+    parsed = parseConfig(existingText);
+  } catch (error) {
+    fail(`cannot parse ${config.path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const entries = pluginEntries(parsed);
+  const present = entries.some((entry) => isFastContextEntry(entry, target));
 
   if (args.remove) {
-    if (!already) {
+    if (!present) {
       console.log(`No Fast Context plugin entry found in ${config.path}; nothing to remove.`);
       return;
     }
-    await atomicWrite(config.path, removePlugin(existing, target));
-    console.log(`Removed ${target} from ${config.path}. Restart OpenCode.`);
+    const remaining = entries.filter((entry) => !isFastContextEntry(entry, target));
+    await mkdir(dirname(config.path), { recursive: true });
+    await atomicWrite(config.path, writePlugins(existingText, remaining));
+    const after = parseConfig(await readFile(config.path, "utf8"));
+    if (pluginEntries(after).some((entry) => isFastContextEntry(entry, target))) {
+      fail("removal did not stick; configuration still contains the plugin");
+    }
+    console.log(`Removed the Fast Context plugin from ${config.path}. Restart OpenCode.`);
     return;
   }
 
-  if (already) {
+  if (present) {
     await verifyIdentity(target);
     console.log(`Already configured in ${config.path}; no change.`);
     console.log(`Plugin id: ${PLUGIN_ID}`);
@@ -156,8 +308,14 @@ async function main() {
     return;
   }
 
+  const nextText = writePlugins(existingText, [...entries, target]);
   await mkdir(dirname(config.path), { recursive: true });
-  await atomicWrite(config.path, addPlugin(existing, target));
+  await atomicWrite(config.path, nextText);
+
+  const after = parseConfig(await readFile(config.path, "utf8"));
+  if (!pluginEntries(after).some((entry) => isFastContextEntry(entry, target))) {
+    fail("configuration was written but the plugin entry is not present; inspect the file");
+  }
   await verifyIdentity(target);
 
   console.log(`Added ${target} to ${config.path}.`);
@@ -167,4 +325,6 @@ async function main() {
   console.log(`Remove with: npm run setup:opencode -- --remove --scope ${args.scope}`);
 }
 
-main().catch((error) => fail(error instanceof Error ? error.message : String(error)));
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((error) => fail(error instanceof Error ? error.message : String(error)));
+}

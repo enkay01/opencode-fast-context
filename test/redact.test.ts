@@ -24,9 +24,12 @@ test("redacts bearer tokens, API keys, and cloud credentials", () => {
 });
 
 test("rejects private key blocks instead of sending them", () => {
-  const payload = sanitizeForProvider(
-    "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----",
-  );
+  const block = [
+    ["-----BEGIN PRIVATE", "KEY-----"].join(" "),
+    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
+    ["-----END PRIVATE", "KEY-----"].join(" "),
+  ].join("\n");
+  const payload = sanitizeForProvider(block);
   assert.equal(payload.ok, false);
   assert.equal(payload.text, "");
 });
@@ -37,7 +40,7 @@ test("provider errors never expose the response body or credential", async () =>
     fetchImpl: (async () =>
       new Response(`credential ${DUMMY_KEY} source ${SOURCE_MARKER}`, {
         status: 500,
-        headers: { "x-request-id": "req_test_123" },
+        headers: { "x-request-id": "req-test-123" },
       })) as typeof fetch,
   });
 
@@ -49,9 +52,33 @@ test("provider errors never expose the response body or credential", async () =>
       }),
     (error: Error) => {
       assert.match(error.message, /HTTP 500/);
-      assert.match(error.message, /req_test_123/);
+      assert.match(error.message, /req-test-123/);
       assert.ok(!error.message.includes(DUMMY_KEY));
       assert.ok(!error.message.includes(SOURCE_MARKER));
+      return true;
+    },
+  );
+});
+
+test("hostile request IDs are omitted from errors", async () => {
+  const provider = createJevProvider({
+    apiKey: DUMMY_KEY,
+    fetchImpl: (async () =>
+      new Response("nope", {
+        status: 401,
+        headers: { "x-request-id": "ghp_abcdefghijklmnopqrstuvwxyz0123456789" },
+      })) as typeof fetch,
+  });
+
+  await assert.rejects(
+    () =>
+      provider.score("where", [{ id: "c1", path: "a.ts", code: "const a = 1" }], {
+        deadline: Date.now() + 5000,
+        concurrency: 1,
+      }),
+    (error: Error) => {
+      assert.equal(error.message, "HTTP 401");
+      assert.ok(!error.message.includes("ghp_"));
       return true;
     },
   );
