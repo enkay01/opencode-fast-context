@@ -25,7 +25,7 @@
 
 - [ ] 4.1 Measure H0 through repository-stratified five-fold evaluation.
 - [x] 4.2 Run H1 provider-budget ablations. Preliminary: six tuning tasks, one repetition; see `bench/experiment/H1-result.md`. Budget 24 retained.
-- [ ] 4.3 Run H2 vocabulary-expansion ablations.
+- [x] 4.3 Run H2 vocabulary-expansion ablations. Preliminary: six tuning tasks; see `bench/experiment/H2-result.md`. WIP-climb2 promoted.
 - [ ] 4.4 Run H3 hierarchical navigation if its hypothesis remains supported.
 - [ ] 4.5 Run H4 multi-window ablations under a fixed context budget.
 - [ ] 4.6 Calibrate H5 abstention using out-of-fold predictions.
