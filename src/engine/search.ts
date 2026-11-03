@@ -12,6 +12,8 @@ export interface SearchOptions {
   signal?: AbortSignal;
   /** Called as each pipeline stage completes; keep it out of model-facing output. */
   onStage?: (stage: string) => void;
+  /** Attach the discovery pool and ranked decisions for benchmark instrumentation. */
+  includeDiagnostics?: boolean;
 }
 
 interface RankedCandidate extends Candidate {
@@ -28,6 +30,13 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   const stage = limits.ablationStage ?? "climb3";
   const deadline = started + limits.deadlineMs;
   const query = options.query.trim();
+  const diagnostics = {
+    poolFiles: [] as string[],
+    ranked: [] as Array<{ path: string; decision: number | null; lexical: number }>,
+    abstained: false,
+    abstainThreshold: limits.minDecision as number | null,
+    discoveryTimedOut: false,
+  };
   const providerInfo: ProviderInfo = {
     id: options.provider?.id ?? "none",
     model: options.provider?.model ?? null,
@@ -50,6 +59,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       provider: extra.provider ?? providerInfo,
       timings: { discovery: extra.timings?.discovery ?? 0, ranking: extra.timings?.ranking ?? 0, total },
       ...(extra.reason ? { reason: extra.reason } : {}),
+      ...(options.includeDiagnostics ? { diagnostics } : {}),
     };
   };
 
@@ -67,6 +77,8 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
     ...(options.signal ? { signal: options.signal } : {}),
   });
   const discoveryMs = Date.now() - discoveryStart;
+  diagnostics.poolFiles = [...new Set(discovery.candidates.map((candidate) => candidate.path))].slice(0, 200);
+  diagnostics.discoveryTimedOut = discovery.timedOut;
 
   if (options.signal?.aborted) {
     return result("cancelled", [], { candidateCount: discovery.candidates.length, timings: { discovery: discoveryMs, ranking: 0, total: 0 } });
@@ -251,6 +263,12 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
 
   const topDecision = ranked.find((candidate) => candidate.decisionScore !== null)?.decisionScore ?? null;
   if (options.provider && status !== "fallback_required" && topDecision !== null && topDecision < limits.minDecision) {
+    diagnostics.abstained = true;
+    diagnostics.ranked = ranked.slice(0, 64).map((candidate) => ({
+      path: candidate.path,
+      decision: candidate.decisionScore,
+      lexical: candidate.lexicalScore,
+    }));
     return result("no_match", [], {
       candidateCount: discovery.candidates.length,
       timings: { discovery: discoveryMs, ranking: rankingMs, total: 0 },
@@ -269,6 +287,12 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   }
 
   if (discovery.candidates.length > evidence.length) truncated = true;
+
+  diagnostics.ranked = ranked.slice(0, 64).map((candidate) => ({
+    path: candidate.path,
+    decision: candidate.decisionScore,
+    lexical: candidate.lexicalScore,
+  }));
 
   if (discovery.timedOut && status === "complete") {
     status = "partial";

@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
+import { exec } from "../src/engine/files.ts";
 import { searchRepository } from "../src/engine/search.ts";
 import { resolveProvider, type ProviderKind } from "../src/config.ts";
 import type { AblationStage, SearchResult } from "../src/types.ts";
@@ -10,6 +11,14 @@ import { loadCorpus, repoRoot, validateCorpus, type Corpus, type Task } from "./
 import { toResult } from "./b0-parse.ts";
 import { scoreRun, type Metrics } from "./metrics.ts";
 import { buildReport } from "./report.ts";
+import {
+  MANIFEST_PATH,
+  corpusVersion,
+  loadManifest,
+  protocolHash,
+  sha256,
+  validateRunRecords,
+} from "./experiment.ts";
 
 interface Arm {
   id: ProviderKind;
@@ -23,11 +32,22 @@ const ARMS: Record<string, Arm> = {
 };
 
 interface Record {
+  runId: string;
   taskId: string;
+  variantId: string;
   arm: string;
+  armLabel: string;
+  armId: ProviderKind;
+  diagnostics: SearchResult["diagnostics"];
   repeat: number;
   startedAt: string;
   elapsedMs: number;
+  stage: AblationStage;
+  providerBudget: number;
+  protocolHash: string;
+  corpusVersion: string;
+  implementationCommit: string;
+  limits: { rankedCandidates: number; candidatePool: number; deadlineMs: number };
   metrics: Metrics;
   result: SearchResult;
   fallback: { elapsedMs: number; status: string; resultFiles: number } | null;
@@ -53,6 +73,13 @@ async function main(): Promise<void> {
 
   const stage = (args.stage ?? "climb3") as AblationStage;
   if (!STAGES.includes(stage)) throw new Error(`unknown stage: ${stage}. Use ${STAGES.join(", ")}.`);
+  const providerBudget = Number(args["provider-budget"] ?? 24);
+  const variantId = args.variant ?? stage;
+
+  const experimentManifest = await loadManifest(root);
+  const currentProtocolHash = await protocolHash(root);
+  const currentCorpusVersion = await corpusVersion(root, args.corpus ?? "bench/corpus/tasks.json");
+  const implementationCommit = await gitCommit(root);
 
   const repeat = Math.max(1, Number(args.repeat ?? 1));
   const concurrency = Math.max(1, Number(args.concurrency ?? 1));
@@ -67,7 +94,8 @@ async function main(): Promise<void> {
         root: directory,
         query: task.question,
         provider: resolution.provider,
-        limits: { ablationStage: stage },
+        limits: { ablationStage: stage, rankedCandidates: providerBudget },
+        includeDiagnostics: true,
         onStage: () => undefined,
       });
       const elapsedMs = Math.round(performance.now() - started);
@@ -78,12 +106,30 @@ async function main(): Promise<void> {
       const fallback = result.status === "fallback_required"
         ? await measureFallback(task, directory, args)
         : null;
+      const runId = sha256(
+        [variantId, arm.id, task.id, run, startedAt].join("|"),
+      ).slice(0, 24);
       records.push({
+        runId,
         taskId: task.id,
-        arm: arm.label,
+        variantId,
+        arm: arm.id,
+        armLabel: arm.label,
+        armId: arm.id,
+        diagnostics: result.diagnostics,
         repeat: run,
         startedAt,
         elapsedMs,
+        stage,
+        providerBudget,
+        protocolHash: currentProtocolHash,
+        corpusVersion: currentCorpusVersion,
+        implementationCommit,
+        limits: {
+          rankedCandidates: providerBudget,
+          candidatePool: 400,
+          deadlineMs: 10_000,
+        },
         metrics,
         result,
         fallback,
@@ -102,13 +148,29 @@ async function main(): Promise<void> {
   const outDir = resolve(root, args.out ?? join("bench", "runs", `${stamp}-${arm.id}`));
   await mkdir(outDir, { recursive: true });
 
+  const validationErrors = validateRunRecords(records, {
+    manifest: experimentManifest,
+    currentProtocolHash,
+    currentCorpusVersion,
+  });
+  if (validationErrors.length > 0) {
+    throw new Error(`run set failed experiment validation:\n${validationErrors.join("\n")}`);
+  }
+
   const manifest = {
     arm: arm.label,
+    armId: arm.id,
     provider: arm.id,
     providerModel: records[0]?.result.provider.model ?? null,
     tasks: tasks.map((task) => task.id),
     repeat,
     stage,
+    variantId,
+    providerBudget,
+    protocolHash: currentProtocolHash,
+    corpusVersion: currentCorpusVersion,
+    implementationCommit,
+    experimentManifest: MANIFEST_PATH,
     corpus: args.corpus ?? "bench/corpus/tasks.json",
     opencodeVersion: await opencodeVersion(root),
     node: process.version,
@@ -117,6 +179,7 @@ async function main(): Promise<void> {
 
   await writeFile(join(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(join(outDir, "records.json"), `${JSON.stringify(records, null, 2)}\n`);
+  await writeFile(join(outDir, "records.jsonl"), `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
   const report = buildReport(manifest, records);
   await writeFile(join(outDir, "report.md"), report);
   process.stdout.write(`\nWrote ${outDir}\n\n${report}`);
@@ -186,6 +249,12 @@ function captureText(command: string[], cwd: string, timeoutMs: number): Promise
       resolvePromise(text);
     });
   });
+}
+
+async function gitCommit(root: string): Promise<string> {
+  const result = await exec("git", ["rev-parse", "HEAD"], { cwd: root, timeoutMs: 10_000 });
+  if (result.code !== 0) throw new Error("could not resolve implementation commit");
+  return result.stdout.trim();
 }
 
 async function opencodeVersion(_root: string): Promise<string | null> {

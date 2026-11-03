@@ -9,5 +9,7 @@ export interface SearchOptions {
     signal?: AbortSignal;
     /** Called as each pipeline stage completes; keep it out of model-facing output. */
     onStage?: (stage: string) => void;
+    /** Attach the discovery pool and ranked decisions for benchmark instrumentation. */
+    includeDiagnostics?: boolean;
 }
 export declare function searchRepository(options: SearchOptions): Promise<SearchResult>;

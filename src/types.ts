@@ -40,6 +40,17 @@ export interface Timings {
   total: number;
 }
 
+export interface RetrievalDiagnostics {
+  /** Unique files in the post-discovery pool, before provider ranking. */
+  poolFiles: string[];
+  /** Ranked candidates with the raw provider decision, if any. */
+  ranked: Array<{ path: string; decision: number | null; lexical: number }>;
+  /** True when the relevance threshold rejected every candidate. */
+  abstained: boolean;
+  abstainThreshold: number | null;
+  discoveryTimedOut: boolean;
+}
+
 export interface SearchResult {
   version: 1;
   query: string;
@@ -50,6 +61,7 @@ export interface SearchResult {
   provider: ProviderInfo;
   timings: Timings;
   reason?: string;
+  diagnostics?: RetrievalDiagnostics;
 }
 
 export interface Limits {

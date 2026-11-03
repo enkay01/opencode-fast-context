@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "protocol": "EXPERIMENT_PROTOCOL.md",
+  "protocolHash": "979479e21776ccd8c3b1109369abcabbed0c4da21f49d50dc7c9037e1d04c235",
+  "h0Commit": "1137754",
+  "corpusPath": "bench/corpus/tasks.json",
+  "corpusVersion": "121b6fa341dbf83282a3064e9f837b3e2b89d6627ea4eb9c9779eb1deb89f804",
+  "arms": [
+    "none",
+    "jev",
+    "clef"
+  ],
+  "stages": [
+    "v0",
+    "climb1",
+    "climb2",
+    "climb3"
+  ],
+  "providerBudgets": [
+    24,
+    48,
+    64
+  ],
+  "variants": [
+    {
+      "id": "H1-24",
+      "generation": "H1",
+      "parent": "H0",
+      "mechanism": "provider budget 24 unique files",
+      "predictedMetric": "discovery hit and added ms",
+      "registered": true
+    },
+    {
+      "id": "H1-48",
+      "generation": "H1",
+      "parent": "H0",
+      "mechanism": "provider budget 48 unique files",
+      "predictedMetric": "discovery hit and added ms",
+      "registered": true
+    },
+    {
+      "id": "H1-64",
+      "generation": "H1",
+      "parent": "H0",
+      "mechanism": "provider budget 64 unique files",
+      "predictedMetric": "discovery hit and added ms",
+      "registered": true
+    },
+    {
+      "id": "WIP-climb1",
+      "generation": "H2",
+      "parent": "H0",
+      "mechanism": "stemming and code synonyms in query terms",
+      "predictedMetric": "discovery hit by stratum",
+      "registered": true
+    },
+    {
+      "id": "WIP-climb2",
+      "generation": "H2",
+      "parent": "WIP-climb1",
+      "mechanism": "concept grouping over stemmed terms",
+      "predictedMetric": "discovery hit by stratum",
+      "registered": true
+    },
+    {
+      "id": "WIP-climb3",
+      "generation": "H4",
+      "parent": "WIP-climb2",
+      "mechanism": "three disjoint windows per file plus context enrichment",
+      "predictedMetric": "range coverage given file",
+      "registered": true
+    }
+  ]
+}

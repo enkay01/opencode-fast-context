@@ -15,6 +15,10 @@ interface RecordLike {
     top1Correct: boolean | null;
     reciprocalRank: number | null;
     lineCoverage: number | null;
+    discoveryHit?: boolean | null;
+    rankHitGivenDiscovery?: boolean | null;
+    falseAbstention?: boolean | null;
+    rangeCoverageGivenFile?: number | null;
     absentCorrect: boolean | null;
     contextChars: number;
   };
@@ -79,6 +83,14 @@ export function buildReport(manifest: Record<string, unknown>, records: RecordLi
   lines.push(`| Macro precision@5 | ${value(mean(records.map((record) => record.metrics.precisionAt5)))} |`);
   lines.push(`| Macro recall@5 | ${value(mean(records.map((record) => record.metrics.recallAt5)))} |`);
   lines.push(`| Macro line coverage | ${value(mean(records.map((record) => record.metrics.lineCoverage)))} |`);
+  lines.push(`| Discovery hit | ${rate(records.map((record) => record.metrics.discoveryHit))} |`);
+  lines.push(
+    `| Rank hit given discovery | ${rate(records.map((record) => record.metrics.rankHitGivenDiscovery))} |`,
+  );
+  lines.push(`| False abstention | ${rate(records.map((record) => record.metrics.falseAbstention))} |`);
+  lines.push(
+    `| Range coverage given file | ${value(mean(records.map((record) => record.metrics.rangeCoverageGivenFile ?? null)))} |`,
+  );
   lines.push(`| Absent-answer correct | ${absentSummary(records)} |`);
   lines.push(`| Truncated results | ${records.filter((record) => record.result.truncated).length} |`);
   lines.push(`| Fallback required | ${records.filter((record) => record.result.status === "fallback_required").length} |`);
@@ -110,6 +122,12 @@ export function buildReport(manifest: Record<string, unknown>, records: RecordLi
   );
   lines.push("");
   return `${lines.join("\n")}\n`;
+}
+
+function rate(values: Array<boolean | null | undefined>): string {
+  const known = values.filter((value): value is boolean => typeof value === "boolean");
+  if (known.length === 0) return "n/a";
+  return pct(known.filter(Boolean).length / known.length);
 }
 
 function absentSummary(records: RecordLike[]): string {

@@ -11,6 +11,13 @@ export async function searchRepository(options) {
     const stage = limits.ablationStage ?? "climb3";
     const deadline = started + limits.deadlineMs;
     const query = options.query.trim();
+    const diagnostics = {
+        poolFiles: [],
+        ranked: [],
+        abstained: false,
+        abstainThreshold: limits.minDecision,
+        discoveryTimedOut: false,
+    };
     const providerInfo = {
         id: options.provider?.id ?? "none",
         model: options.provider?.model ?? null,
@@ -28,6 +35,7 @@ export async function searchRepository(options) {
             provider: extra.provider ?? providerInfo,
             timings: { discovery: extra.timings?.discovery ?? 0, ranking: extra.timings?.ranking ?? 0, total },
             ...(extra.reason ? { reason: extra.reason } : {}),
+            ...(options.includeDiagnostics ? { diagnostics } : {}),
         };
     };
     if (!query) {
@@ -43,6 +51,8 @@ export async function searchRepository(options) {
         ...(options.signal ? { signal: options.signal } : {}),
     });
     const discoveryMs = Date.now() - discoveryStart;
+    diagnostics.poolFiles = [...new Set(discovery.candidates.map((candidate) => candidate.path))].slice(0, 200);
+    diagnostics.discoveryTimedOut = discovery.timedOut;
     if (options.signal?.aborted) {
         return result("cancelled", [], { candidateCount: discovery.candidates.length, timings: { discovery: discoveryMs, ranking: 0, total: 0 } });
     }
@@ -198,6 +208,12 @@ export async function searchRepository(options) {
     }
     const topDecision = ranked.find((candidate) => candidate.decisionScore !== null)?.decisionScore ?? null;
     if (options.provider && status !== "fallback_required" && topDecision !== null && topDecision < limits.minDecision) {
+        diagnostics.abstained = true;
+        diagnostics.ranked = ranked.slice(0, 64).map((candidate) => ({
+            path: candidate.path,
+            decision: candidate.decisionScore,
+            lexical: candidate.lexicalScore,
+        }));
         return result("no_match", [], {
             candidateCount: discovery.candidates.length,
             timings: { discovery: discoveryMs, ranking: rankingMs, total: 0 },
@@ -215,6 +231,11 @@ export async function searchRepository(options) {
     }
     if (discovery.candidates.length > evidence.length)
         truncated = true;
+    diagnostics.ranked = ranked.slice(0, 64).map((candidate) => ({
+        path: candidate.path,
+        decision: candidate.decisionScore,
+        lexical: candidate.lexicalScore,
+    }));
     if (discovery.timedOut && status === "complete") {
         status = "partial";
         reason = "discovery deadline expired before all search waves completed";
