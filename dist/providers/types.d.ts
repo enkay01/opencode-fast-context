@@ -19,12 +19,30 @@ export interface ScoreOptions {
     deadline: number;
     concurrency: number;
 }
+export interface ChooseOption {
+    id: string;
+    label: string;
+}
+export interface ChooseResult {
+    choice: string | null;
+    probabilities: Record<string, number>;
+    usage: {
+        input: number;
+        output: number;
+    } | null;
+    model: string;
+}
 export interface DecisionProvider {
     id: "jev" | "clef";
     model: string;
     /** Optional cap on how many candidates this provider can rank inside the deadline. */
     maxCandidates?: number;
     score(query: string, candidates: ScoreCandidate[], options: ScoreOptions): Promise<ScoreResult>;
+    /** Optional single-choice judgment over a bounded list of labels. */
+    choose?(query: string, options: ChooseOption[], opts: {
+        deadline: number;
+        signal?: AbortSignal;
+    }): Promise<ChooseResult>;
 }
 export declare class ProviderError extends Error {
     readonly providerId: string;

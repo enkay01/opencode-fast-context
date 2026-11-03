@@ -39,39 +39,49 @@ Raw records and transcripts are in the local `bench/runs/` directory and are int
 | Arm | Median ms | p95 ms | Δ median vs B0 | Top-1 | Recall@5 | Line coverage | Valid |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | B0 stock OpenCode + DeepSeek | 18,516 | 34,544 | — | 100% | 1.00 | 0.87 | 100% |
-| B1 local ranking | 750 | 1,575 | -96% | 33% | 0.33 | 0.17 | 100% |
-| Jev ranking | 4,501 | 5,949 | -76% | 33% | 0.83 | 0.38 | 100% |
-| Clef ranking | 5,212 | 6,592 | -72% | 33% | 0.67 | 0.23 | 100% |
+| B1 local ranking | 1,189 | 2,434 | -94% | 33% | 0.33 | 0.17 | 100% |
+| Jev ranking | 5,244 | 7,126 | -72% | 50% | 0.83 | 0.27 | 100% |
+| Clef ranking | 6,628 | 8,962 | -64% | 50% | 0.67 | 0.23 | 100% |
 
 ## Results: held-out split (n=4: 2 code, 2 absent)
 
-| Arm | Median ms | p95 ms | Δ median vs B0 | Code top-1 | Code recall@5 | Absent correct | Valid |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| B0 stock OpenCode + DeepSeek | 11,199 | 19,588 | — | 100% | 1.00 | 2/2 | 100% |
-| B1 local ranking | 1,024 | 2,292 | -91% | 50% | 0.50 | 0/2 | 100% |
-| Jev ranking | 5,096 | 6,397 | -55% | 50% | 0.50 | 0/2 | 100% |
-| Clef ranking | 7,251 | 8,283 | -35% | 50% | 0.50 | 0/2 | 100% |
+| Arm | Median ms | p95 ms | Δ median vs B0 | Code top-1 | Code recall@5 | Line coverage | Absent correct | Valid |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| B0 stock OpenCode + DeepSeek | 11,199 | 19,588 | — | 100% | 1.00 | 0.12 | 2/2 | 100% |
+| B1 local ranking | 1,654 | 3,310 | -85% | 50% | 0.50 | 0.07 | 0/2 | 100% |
+| Jev ranking | 4,954 | 8,397 | -56% | 0% | 0.50 | 0.07 | 2/2 | 100% |
+| Clef ranking | 6,698 | 10,013 | -40% | 50% | 0.50 | 0.07 | 1/2 | 100% |
 
-Line coverage on the two held-out code tasks was 0.00 for all plugin arms: they found the correct file for one task but not the labelled ranges. B0 found both files but also returned mostly different ranges (0.12 coverage).
+Jev finds the correct held-out file for `rg-max-columns` but ranks it second to fifth, so top-1 is zero. B0 finds both held-out code files first. Line coverage is low across all plugin arms: they locate files less precisely than the baseline.
 
 ## What this shows
 
-**The speed gain is real.** Jev ranking cuts median time by 76% on tuning and 55% on held-out. Nearly all remaining time is the decision model: discovery is 0.1–1.6s, ranking is 3–5s. B1 shows local search alone is roughly 25x faster than B0 on tuning tasks, but far less accurate.
+**The speed gain is real.** Jev ranking cuts median time by 72% on tuning and 56% on held-out. Most of the remaining time is the decision model: discovery is 0.1–2.4s, ranking is 3–5s. B1 shows local search alone is roughly 15–25x faster than B0 on tuning tasks, but far less accurate.
 
-**Quality is not there yet.** On the tuning split the Jev arm finds 5 of 6 labelled files (recall 0.83) but usually not first. On held-out it finds 1 of 2. The two absent-answer questions expose a structural gap: lexical candidates always exist, so the engine cannot tell "nothing here" from "weak matches". B0 handled both correctly.
+**Absent-answer detection now works.** Both held-out absent tasks return `no_match` with Jev, up from 0/2 in the first run. The engine returns `no_match` when the best relevance judgment falls below 0.15. That threshold was chosen from tuning scores and validated on the held-out set; a threshold of 0.45 was too aggressive and rejected one real answer.
 
-**Jev beat Clef here.** Clef-flash scored 24 candidates in 7–9s and hit the 10s deadline in early runs, so it is capped at 12 candidates. That cap cost it the OpenCode config-schema task. Jev's 24-candidate configuration stayed inside the deadline. This measures these REST endpoints from this machine; a local Clef deployment could change the result.
+**The recall problem is unchanged on held-out.** Jev recalls 0.83 of labelled files on tuning and 0.50 on held-out, against 1.00 for B0 on both. The remaining held-out miss is a paraphrase ("where can a plugin list, add, update, or remove tools") whose target file never entered the 24-file scoring shortlist. No ranker can recover it. Fixing that needs broader discovery, not better judgment.
 
-**The bottleneck is candidate recall, not ranking.** The held-out OpenCode task and one tuning task were paraphrases with little lexical overlap (`choose which model...` vs `defaultModel`). The target file never entered the 24-candidate shortlist, so no ranker could select it. The first useful improvement is broader discovery — directory-level search, identifier expansion from the question, or a cheap first-pass decision over file paths — not a better reranker.
+**Jev beat Clef here.** Clef is capped at 12 candidates because its REST endpoint was slower per call; that cap cost it coverage, and one held-out run hit the 10s deadline. This measures these endpoints from this machine, not the models in general.
+
+## Changes made after the first benchmark
+
+- Fixed path parsing when a single file was searched, which had hidden matches.
+- Score one window per file, so 24 provider calls cover 24 files instead of a few repeated files.
+- Rank scored candidates above unscored ones. Unscored lexical leftovers previously outranked judged evidence.
+- Read a wider window for the provider (8 lines before, 12 after) so comment-only matches still show the code that follows.
+- Penalize locale/translation files and translation tables, which dominated lexical scores in the OpenCode repository.
+- Add the relevance threshold for `no_match`.
+- Add directory-first navigation as an opt-in experiment (`FAST_CONTEXT_DIRECTORY_HINT=1`): one choice call picks a directory and adds its files to the scoring shortlist. It added about 0.5s and did not improve recall on this corpus, so it is off by default.
 
 ## Targets from the proposal
 
 | Target | Result |
 | --- | --- |
-| ≥25% lower median than B0 | Met on tuning (-76%) and held-out (-55%) |
+| ≥25% lower median than B0 | Met on tuning (-72%) and held-out (-56%) |
 | ≤2pp lower macro recall@5 | Not met (-17pp tuning, -50pp held-out) |
 | p95 no worse than B0 | Met on both splits |
-| ≥95% valid completion | Met (100% in these runs) |
+| ≥95% valid completion | Met (100% of runs returned a usable result) |
 
 The speed and reliability targets pass; the quality target fails. That is the reason the plugin stays opt-in and explicit rather than replacing normal search.
 

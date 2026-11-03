@@ -1,4 +1,5 @@
 import { DEFAULT_LIMITS, type Evidence, type EvidenceRange, type Limits, type ProviderInfo, type SearchResult, type SearchStatus } from "../types.ts";
+import { dirname } from "node:path";
 import { discover, readCandidateExcerpt, type Candidate } from "./discover.ts";
 import type { DecisionProvider } from "../providers/types.ts";
 
@@ -88,11 +89,22 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       limits.rankedCandidates,
       options.provider.maxCandidates ?? limits.rankedCandidates,
     );
-    const shortlist = lexicalPool.slice(0, providerLimit);
+    const hint = await chooseDirectory(options.provider, query, lexicalPool, deadline, options.signal);
+    const shortlist = providerShortlist(lexicalPool, providerLimit, hint);
     const scoredCandidates = await Promise.all(
       shortlist.map(async (candidate) => ({
         candidate,
-        checked: await readCandidateExcerpt(options.root, candidate, limits.maxFileBytes),
+        checked: await readCandidateExcerpt(
+          options.root,
+          {
+            ...candidate,
+            ranges: candidate.ranges.map((range) => ({
+              start: Math.max(1, range.start - 8),
+              end: range.end + 12,
+            })),
+          },
+          limits.maxFileBytes,
+        ),
       })),
     );
     const sendable = scoredCandidates.filter((item) => item.checked !== null);
@@ -116,16 +128,25 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
         model: scoring.model,
         usage: scoring.usage,
       };
-      const maxLexical = Math.max(...lexicalPool.map((candidate) => candidate.lexicalScore), 1);
-      ranked = lexicalPool
-        .map((candidate) => {
-          const decision = scoring.scores[candidate.id];
-          if (decision === undefined) return { candidate, blend: candidate.lexicalScore / maxLexical };
-          const blended = decision * 0.7 + (candidate.lexicalScore / maxLexical) * 0.3;
-          return { candidate, blend: blended, decision };
-        })
-        .sort((a, b) => b.blend - a.blend || a.candidate.path.localeCompare(b.candidate.path))
-        .map(({ candidate, decision }): RankedCandidate => ({ ...candidate, decisionScore: decision ?? null }));
+      const scored: RankedCandidate[] = [];
+      const scoredPaths = new Set<string>();
+      for (const { candidate } of sendable) {
+        const decision = scoring.scores[candidate.id];
+        if (decision === undefined) continue;
+        scored.push({ ...candidate, decisionScore: decision });
+        scoredPaths.add(candidate.path);
+      }
+      scored.sort(
+        (a, b) =>
+          (b.decisionScore ?? 0) - (a.decisionScore ?? 0) ||
+          b.lexicalScore - a.lexicalScore ||
+          a.path.localeCompare(b.path),
+      );
+      const unscored = bestWindowPerFile(
+        lexicalPool.filter((candidate) => !scoredPaths.has(candidate.path)),
+        limits.candidates,
+      ).map((candidate) => ({ ...candidate, decisionScore: null }));
+      ranked = [...scored, ...unscored];
 
       if (scoring.skipped > 0) {
         status = "partial";
@@ -187,6 +208,16 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
     if (clipped.truncated) truncated = true;
   }
 
+  const topDecision = ranked.find((candidate) => candidate.decisionScore !== null)?.decisionScore ?? null;
+  if (options.provider && status !== "fallback_required" && topDecision !== null && topDecision < limits.minDecision) {
+    return result("no_match", [], {
+      candidateCount: discovery.candidates.length,
+      timings: { discovery: discoveryMs, ranking: rankingMs, total: 0 },
+      provider,
+      reason: `no candidate passed the relevance threshold (best score ${topDecision.toFixed(2)})`,
+    });
+  }
+
   if (evidence.length === 0) {
     return result("no_match", [], {
       candidateCount: discovery.candidates.length,
@@ -210,6 +241,82 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
 
 interface RankedCandidate extends Candidate {
   decisionScore: number | null;
+}
+
+/** Keep the highest-scoring window for each file, then take the best `limit` files. */
+function bestWindowPerFile(candidates: Candidate[], limit: number): Candidate[] {
+  const best = new Map<string, Candidate>();
+  for (const candidate of candidates) {
+    const current = best.get(candidate.path);
+    if (!current || candidate.lexicalScore > current.lexicalScore) best.set(candidate.path, candidate);
+  }
+  return [...best.values()]
+    .sort((a, b) => b.lexicalScore - a.lexicalScore || a.path.localeCompare(b.path))
+    .slice(0, limit);
+}
+
+async function chooseDirectory(
+  provider: DecisionProvider,
+  query: string,
+  candidates: Candidate[],
+  deadline: number,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  if (!provider.choose) return null;
+  if (process.env.FAST_CONTEXT_DIRECTORY_HINT !== "1") return null;
+  if (deadline - Date.now() < 2500) return null;
+
+  const byDirectory = new Map<string, number[]>();
+  for (const candidate of candidates) {
+    const directory = dirname(candidate.path);
+    const scores = byDirectory.get(directory) ?? [];
+    scores.push(candidate.lexicalScore);
+    byDirectory.set(directory, scores);
+  }
+
+  const directories = [...byDirectory.entries()]
+    .map(([directory, scores]) => ({
+      directory,
+      score: scores.sort((a, b) => b - a).slice(0, 3).reduce((sum, score) => sum + score, 0),
+      count: scores.length,
+    }))
+    .filter((entry) => entry.directory !== ".")
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+
+  if (directories.length < 2) return null;
+
+  try {
+    const result = await provider.choose(
+      query,
+      directories.map((entry) => ({
+        id: entry.directory,
+        label: `${entry.directory} (${entry.count} matching files)`,
+      })),
+      { deadline, ...(signal ? { signal } : {}) },
+    );
+    return result.choice;
+  } catch {
+    return null;
+  }
+}
+
+function providerShortlist(candidates: Candidate[], limit: number, hint: string | null): Candidate[] {
+  const base = bestWindowPerFile(candidates, limit);
+  if (!hint) return base;
+
+  const chosen = new Set(base.map((candidate) => candidate.path));
+  const extras = bestWindowPerFile(
+    candidates.filter((candidate) => dirname(candidate.path) === hint),
+    10,
+  ).filter((candidate) => !chosen.has(candidate.path));
+
+  const merged = [...base];
+  for (const extra of extras) {
+    if (merged.length < limit) merged.push(extra);
+    else merged[merged.length - 1] = extra;
+  }
+  return merged;
 }
 
 function clipSections(

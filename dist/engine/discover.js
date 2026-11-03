@@ -64,36 +64,52 @@ export async function discover(root, query, limits, options) {
             .map((item) => item.path);
         if (shortlist.length === 0)
             return;
-        const lineResult = await exec("rg", [
-            "-n",
-            "-H",
-            "--no-heading",
-            "--no-messages",
-            "-i",
-            ...terms.flatMap((term) => ["-e", wordPattern(term)]),
-            "--",
-            ...shortlist,
-        ], {
-            cwd: root,
-            timeoutMs: Math.min(remaining(), 5000),
-            maxBytes: 4_000_000,
-            ...(options.signal ? { signal: options.signal } : {}),
-        });
-        if (lineResult.timedOut)
-            timedOut = true;
-        for (const raw of lineResult.stdout.split("\n")) {
-            const parsed = /^(.+?):(\d+):(.*)$/.exec(raw);
-            if (!parsed)
-                continue;
-            const path = parsed[1];
-            const lineNumber = Number(parsed[2]);
-            const text = (parsed[3] ?? "").trim();
-            if (!path || !lineNumber)
-                continue;
-            const entry = matches.get(path) ?? { path, lines: new Map() };
-            if (!entry.lines.has(lineNumber))
-                entry.lines.set(lineNumber, text);
-            matches.set(path, entry);
+        const chosen = new Set(shortlist);
+        const byName = [...union]
+            .filter((path) => {
+            if (chosen.has(path))
+                return false;
+            const base = (path.split("/").at(-1) ?? "").toLowerCase().replace(/\.[^.]+$/, "");
+            return tokens.some((token) => token.length >= 3 && base.includes(token));
+        })
+            .sort((a, b) => weightedPathScore(tokens, weights, b) - weightedPathScore(tokens, weights, a))
+            .slice(0, 60);
+        shortlist.push(...byName);
+        for (let offset = 0; offset < shortlist.length; offset += 100) {
+            const chunk = shortlist.slice(offset, offset + 100);
+            const lineResult = await exec("rg", [
+                "-n",
+                "-H",
+                "--no-heading",
+                "--no-messages",
+                "-i",
+                ...terms.flatMap((term) => ["-e", wordPattern(term)]),
+                "--",
+                ...chunk,
+            ], {
+                cwd: root,
+                timeoutMs: Math.min(remaining(), 5000),
+                maxBytes: 8_000_000,
+                ...(options.signal ? { signal: options.signal } : {}),
+            });
+            if (lineResult.timedOut)
+                timedOut = true;
+            for (const raw of lineResult.stdout.split("\n")) {
+                const parsed = /^(.+?):(\d+):(.*)$/.exec(raw);
+                if (!parsed)
+                    continue;
+                const path = parsed[1];
+                const lineNumber = Number(parsed[2]);
+                const text = (parsed[3] ?? "").trim();
+                if (!path || !lineNumber)
+                    continue;
+                const entry = matches.get(path) ?? { path, lines: new Map() };
+                if (!entry.lines.has(lineNumber))
+                    entry.lines.set(lineNumber, text);
+                matches.set(path, entry);
+            }
+            if (Date.now() >= options.deadline || options.signal?.aborted)
+                break;
         }
     };
     await collect(tokens, null);
@@ -127,9 +143,16 @@ export async function discover(root, query, limits, options) {
         weights = weightsFor(tokens, fileSets, matches.size || 1);
         candidates = buildCandidates(matches, tokens, weights, limits);
     }
-    const ranked = candidates
-        .sort((a, b) => b.lexicalScore - a.lexicalScore || a.path.localeCompare(b.path))
-        .slice(0, limits.candidates);
+    const ranked = [];
+    const seenFiles = new Set();
+    for (const candidate of candidates.sort((a, b) => b.lexicalScore - a.lexicalScore || a.path.localeCompare(b.path))) {
+        if (seenFiles.has(candidate.path))
+            continue;
+        seenFiles.add(candidate.path);
+        ranked.push(candidate);
+        if (ranked.length >= limits.candidates)
+            break;
+    }
     return { candidates: ranked, matchedFiles: matches.size, fileCount: matches.size, waves, timedOut };
 }
 function wordPattern(term) {
@@ -162,6 +185,8 @@ function weightedPathScore(tokens, weights, path) {
     return score;
 }
 function specificity(path) {
+    if (/(^|\/)(i18n|locale|locales|lang|translations)\//i.test(path))
+        return -2;
     if (/\.(md|mdx|txt|rst|adoc)$/i.test(path) || /(^|\/)docs?\//i.test(path))
         return -1;
     if (/\.(test|spec)\.[a-z]+$/i.test(path) || /(^|\/)(tests?|__tests__|e2e|fixtures)\//i.test(path))
@@ -258,6 +283,14 @@ export function lexicalScore(tokens, weights, path, excerpt, range) {
             matchedWeight += weight;
     }
     let score = Math.min(pathScore, 6) * 1.4 + codeScore + matchedWeight * 0.8;
+    const lines = excerpt.split("\n");
+    const translationLines = lines.filter((line) => /^\s*\d+:\s*"[^"]{1,80}"\s*:/.test(line)).length;
+    if (lines.length > 0 && translationLines / lines.length > 0.3)
+        score *= 0.25;
+    if (/(^|\/)(i18n|locale|locales|lang|translations)\//i.test(path))
+        score *= 0.3;
+    if (/(^|\/)(generated|dist|vendor)\//i.test(path) || /\.gen\.[a-z]+$/i.test(path))
+        score *= 0.7;
     if (/\.(md|mdx|txt|rst|adoc)$/i.test(path) || /(^|\/)docs?\//i.test(path))
         score *= 0.45;
     if (/\.(test|spec)\.[a-z]+$/i.test(path) || /(^|\/)(tests?|__tests__|e2e|fixtures)\//i.test(path))

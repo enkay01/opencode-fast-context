@@ -69,16 +69,19 @@ export interface Limits {
   deadlineMs: number;
   /** Largest file the engine will read, in bytes. */
   maxFileBytes: number;
+  /** Below this top decision score, a provider-ranked search returns no_match. */
+  minDecision: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
   waves: 4,
   concurrency: 8,
-  candidates: 128,
+  candidates: 400,
   rankedCandidates: 24,
   windowLines: 24,
   maxFiles: 10,
   maxLines: 200,
   deadlineMs: 10_000,
   maxFileBytes: 2_000_000,
+  minDecision: 0.15,
 };

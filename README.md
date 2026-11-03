@@ -8,7 +8,7 @@ Fast Context is the pattern where a coding agent delegates codebase research to 
 
 - The plugin and benchmark are implemented and tested (`npm test`, 14 tests).
 - Live verification: OpenCode 2.2.5 loads the plugin and a DeepSeek session calls `fast_context_search`.
-- Measured on a small pinned corpus: median search falls from 18.5s to 4.5s with Jev ranking, but retrieval quality is lower than stock OpenCode. See [BENCHMARK.md](BENCHMARK.md).
+- Measured on a small pinned corpus: median search falls from 18.5s to 5.2s with Jev ranking, but held-out recall is 0.50 against 1.00 for stock OpenCode. Absent-answer detection now works (2/2). See [BENCHMARK.md](BENCHMARK.md).
 - Recommendation: use it explicitly while it is measured, not as a default replacement for search.
 
 ## Install
@@ -76,7 +76,9 @@ time: 4210ms (discovery 180ms, ranking 3900ms)
     ...
 ```
 
-If the provider fails or the deadline expires, the result is `fallback_required` or `partial` with a reason, and ordinary search remains available.
+Results below a relevance threshold return `no_match` rather than weak guesses. If the provider fails or the deadline expires, the result is `fallback_required` or `partial` with a reason, and ordinary search remains available.
+
+Set `FAST_CONTEXT_DIRECTORY_HINT=1` to enable an experimental directory-first step: one choice call picks a likely directory before file scoring. It costs about 0.5s and did not improve recall on the current corpus.
 
 ## Safety and limits
 
@@ -94,11 +96,11 @@ The corpus has 10 tasks over pinned [ripgrep](https://github.com/BurntSushi/ripg
 | Arm (tuning, n=6) | Median | p95 | Top-1 | Recall@5 |
 | --- | ---: | ---: | ---: | ---: |
 | Stock OpenCode + DeepSeek | 18.5s | 34.5s | 100% | 1.00 |
-| Local ranking, no provider | 0.75s | 1.6s | 33% | 0.33 |
-| Jev ranking | 4.5s | 5.9s | 33% | 0.83 |
-| Clef ranking | 5.2s | 6.6s | 33% | 0.67 |
+| Local ranking, no provider | 1.2s | 2.4s | 33% | 0.33 |
+| Jev ranking | 5.2s | 7.1s | 50% | 0.83 |
+| Clef ranking | 6.6s | 9.0s | 50% | 0.67 |
 
-Held-out results are worse: Jev keeps 54% lower median time but recall@5 falls from 1.00 to 0.50, and neither decision model identifies the two absent-answer questions. Details, method, and limitations are in [BENCHMARK.md](BENCHMARK.md).
+Held-out results are weaker: Jev keeps 56% lower median time but recall@5 falls from 1.00 to 0.50. It now returns `no_match` for both absent-answer tasks, which the first version missed. Details, method, and limitations are in [BENCHMARK.md](BENCHMARK.md).
 
 ## Development
 

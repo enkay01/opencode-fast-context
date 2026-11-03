@@ -4,6 +4,8 @@ import {
   RELEVANCE_INSTRUCTIONS,
   buildState,
   mapWithConcurrency,
+  type ChooseOption,
+  type ChooseResult,
   type DecisionProvider,
   type ScoreCandidate,
   type ScoreOptions,
@@ -87,6 +89,77 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+async function callChoice(
+  providerId: string,
+  url: string,
+  headers: Record<string, string>,
+  model: string,
+  query: string,
+  options: ChooseOption[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<ChooseResult> {
+  const body = {
+    model,
+    state: {
+      question: query,
+      directories: options.map((option) => ({ id: option.id, description: option.label })),
+    },
+    questions: {
+      directory: {
+        type: "choice",
+        instructions:
+          "Which directory most likely contains the code that answers the developer's question? " +
+          "Choose from the supplied directories only.",
+        criteria: Object.fromEntries(options.map((option) => [option.id, option.label])),
+      },
+    },
+  };
+
+  const signals = [AbortSignal.timeout(Math.max(1, timeoutMs))];
+  if (signal) signals.push(signal);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any(signals),
+    });
+  } catch (error) {
+    if (signal?.aborted) throw new ProviderError(providerId, "cancelled");
+    throw new ProviderError(providerId, `request failed: ${(error as Error).message}`);
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new ProviderError(providerId, `HTTP ${response.status}: ${text.slice(0, 240)}`, response.status);
+  }
+
+  const json = (await response.json()) as
+    | { model: string; answers: Record<string, { choice?: string; probabilities?: Record<string, number> }>; usage?: { input_tokens?: number; output_tokens?: number } }
+    | { success: boolean; result: { model: string; answers: Record<string, { choice?: string; probabilities?: Record<string, number> }>; usage?: { input_tokens?: number; output_tokens?: number } }; errors?: unknown[] };
+
+  const payload = "result" in json ? json.result : json;
+  if ("errors" in json && Array.isArray(json.errors) && json.errors.length > 0) {
+    throw new ProviderError(providerId, `provider errors: ${JSON.stringify(json.errors).slice(0, 240)}`);
+  }
+  const answer = payload.answers?.directory;
+  const ids = new Set(options.map((option) => option.id));
+  const choice = answer?.choice && ids.has(answer.choice) ? answer.choice : null;
+  const probabilities: Record<string, number> = {};
+  for (const [key, value] of Object.entries(answer?.probabilities ?? {})) {
+    if (ids.has(key) && typeof value === "number") probabilities[key] = value;
+  }
+
+  const usage = payload.usage
+    ? { input: Number(payload.usage.input_tokens ?? 0), output: Number(payload.usage.output_tokens ?? 0) }
+    : null;
+
+  return { choice, probabilities, usage, model: payload.model ?? model };
+}
+
 async function scoreCandidates(
   providerId: "jev" | "clef",
   model: string,
@@ -157,9 +230,13 @@ export interface JevConfig {
 export function createJevProvider(config: JevConfig): DecisionProvider {
   const baseUrl = (config.baseUrl ?? "https://api.typesafe.ai").replace(/\/+$/, "");
   const model = config.model ?? "jev-latest";
+  const endpoint = `${baseUrl}/v1/systemone`;
   return {
     id: "jev",
     model,
+    choose(query, options, opts) {
+      return callChoice("jev", endpoint, { authorization: `Bearer ${config.apiKey}` }, model, query, options, Math.min(opts.deadline - Date.now(), 8000), opts.signal);
+    },
     score(query, candidates, options) {
       return scoreCandidates(
         "jev",
@@ -191,6 +268,9 @@ export function createClefProvider(config: ClefConfig): DecisionProvider {
     id: "clef",
     model: selector,
     maxCandidates: 12,
+    choose(query, options, opts) {
+      return callChoice("clef", endpoint, { authorization: `Bearer ${config.apiToken}` }, selector, query, options, Math.min(opts.deadline - Date.now(), 8000), opts.signal);
+    },
     score(query, candidates, options) {
       return scoreCandidates(
         "clef",
