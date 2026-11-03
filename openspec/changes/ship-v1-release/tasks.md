@@ -2,42 +2,42 @@
 
 ## 1. Freeze the release contract
 
-- [ ] 1.1 Merge or rebase the hill-climb work onto the release branch without changing the measured climb3 behavior.
-- [ ] 1.2 Set version `0.1.0`, record the supported OpenCode 2 floor, and add repository, homepage, bugs, and public publish metadata.
-- [ ] 1.3 Replace the OpenCode 1 SDK dependency and hand-written context types with the OpenCode 2 SDK entrypoint.
-- [ ] 1.4 Remove Clef, legacy entrypoints, and stage-selection controls from the public package surface.
+- [x] 1.1 Merge or rebase the hill-climb work onto the release branch without changing the measured climb3 behavior. — Release branch contains the measured climb3 behavior; no code change was needed.
+- [x] 1.2 Set version `0.1.0`, record the supported OpenCode 2 floor, and add repository, homepage, bugs, and public publish metadata. — `package.json` records version, runtime range, repository, homepage, bugs, and public publish config.
+- [x] 1.3 Replace the OpenCode 1 SDK dependency and hand-written context types with the OpenCode 2 SDK entrypoint. — Entry point uses `Plugin.define` from `@opencode/plugin`; OpenCode 1 dependency and legacy entrypoint removed.
+- [x] 1.4 Remove Clef, legacy entrypoints, and stage-selection controls from the public package surface. — Only the root export remains; Clef, legacy, and stage controls are absent from public config, exports, README, and keywords.
 
 ## 2. Add auto-invocation guidance
 
-- [ ] 2.1 Add `autoInvoke: "suggest" | "off"` with `suggest` as the default.
-- [ ] 2.2 Register one replayable session-context transform with the bounded tool-selection instruction from the design.
-- [ ] 2.3 Prove `off` adds no instruction and `suggest` does not call Jev before an ordinary tool invocation.
-- [ ] 2.4 Test that repeated context transforms do not duplicate the instruction.
-- [ ] 2.5 Document that the setting guides model selection and is not hidden background execution.
+- [x] 2.1 Add `autoInvoke: "suggest" | "off"` with `suggest` as the default. — `autoInvoke` defaults to `suggest`.
+- [x] 2.2 Register one replayable session-context transform with the bounded tool-selection instruction from the design. — One context hook adds the registered instruction; it only mutates `system`.
+- [x] 2.3 Prove `off` adds no instruction and `suggest` does not call Jev before an ordinary tool invocation. — Tests prove `off` adds no hook and `suggest` performs zero fetches while preparing context.
+- [x] 2.4 Test that repeated context transforms do not duplicate the instruction. — Replaying the hook leaves one instruction.
+- [x] 2.5 Document that the setting guides model selection and is not hidden background execution. — README documents guidance versus hidden execution.
 
 ## 3. Close the provider boundary
 
-- [ ] 3.1 Make `TYPESAFE_API_KEY` the only public credential source and fail clearly when it is absent.
-- [ ] 3.2 Remove the public endpoint override and keep transport injection internal to tests.
-- [ ] 3.3 Expand sensitive-file exclusions and add outbound content rejection/redaction before every provider request.
-- [ ] 3.4 Sanitize provider errors so response bodies, headers, queries, excerpts, and credentials cannot reach output or logs.
-- [ ] 3.5 Add tests with dummy credentials and hostile provider responses; assert the credential and source marker are absent from logs, errors, snapshots, and tool output.
+- [x] 3.1 Make `TYPESAFE_API_KEY` the only public credential source and fail clearly when it is absent. — Missing `TYPESAFE_API_KEY` returns `fallback_required` without local ranking.
+- [x] 3.2 Remove the public endpoint override and keep transport injection internal to tests. — Endpoint injection is internal to tests; `TYPESAFE_ENDPOINT` is ignored.
+- [x] 3.3 Expand sensitive-file exclusions and add outbound content rejection/redaction before every provider request. — Exclusions expanded; private-key blocks rejected; token patterns redacted before provider requests.
+- [x] 3.4 Sanitize provider errors so response bodies, headers, queries, excerpts, and credentials cannot reach output or logs. — Errors expose provider, status, and request id only.
+- [x] 3.5 Add tests with dummy credentials and hostile provider responses; assert the credential and source marker are absent from logs, errors, snapshots, and tool output. — Dummy credentials and hostile responses are covered by tests.
 
 ## 4. Make installation one-shot
 
-- [ ] 4.1 Add `scripts/setup-opencode.mjs` and `npm run setup:opencode` with project and global scopes.
-- [ ] 4.2 Preserve JSON/JSONC configuration and existing plugins, write atomically, pin the plugin target, and make reruns a no-op.
-- [ ] 4.3 Check prerequisites and credential presence without reading or printing the value.
-- [ ] 4.4 Verify the installed plugin ID and print an exact removal command.
-- [ ] 4.5 Add concise human instructions and a root `AGENTS.md` one-shot instruction.
+- [x] 4.1 Add `scripts/setup-opencode.mjs` and `npm run setup:opencode` with project and global scopes. — `scripts/setup-opencode.mjs` and `npm run setup:opencode` support project and global scopes.
+- [x] 4.2 Preserve JSON/JSONC configuration and existing plugins, write atomically, pin the plugin target, and make reruns a no-op. — Setup preserves JSONC text, existing plugins, writes atomically, pins the target, and is a no-op on rerun.
+- [x] 4.3 Check prerequisites and credential presence without reading or printing the value. — Prerequisites and credential presence are checked without reading or printing the value.
+- [x] 4.4 Verify the installed plugin ID and print an exact removal command. — Plugin identity is imported and verified; removal command is printed.
+- [x] 4.5 Add concise human instructions and a root `AGENTS.md` one-shot instruction. — README and root AGENTS.md document human and agent setup.
 
 ## 5. Add release verification
 
-- [ ] 5.1 Add `verify:release` for typecheck, tests, build, package allowlist validation, and an OpenCode 2 load/tool-call smoke test.
-- [ ] 5.2 Scan the current tree, Git history, and packed artifact for credential patterns.
-- [ ] 5.3 Reject source maps containing absolute local paths or embedded source content.
-- [ ] 5.4 Add CI for a clean clone and the supported runtime matrix.
-- [ ] 5.5 Add `CHANGELOG.md`, `SECURITY.md`, data disclosure, benchmark limitation, troubleshooting, and uninstall instructions.
+- [x] 5.1 Add `verify:release` for typecheck, tests, build, package allowlist validation, and an OpenCode 2 load/tool-call smoke test. — `verify:release` runs typecheck, tests, build, allowlist, and mocked OpenCode 2 tool-call smoke.
+- [x] 5.2 Scan the current tree, Git history, and packed artifact for credential patterns. — Tracked tree, Git history, and packed tarball are scanned.
+- [x] 5.3 Reject source maps containing absolute local paths or embedded source content. — Source maps disabled and rejected by verification.
+- [x] 5.4 Add CI for a clean clone and the supported runtime matrix. — CI workflow runs verify:release on Node 22, 24, and 26; first GitHub run pending.
+- [x] 5.5 Add `CHANGELOG.md`, `SECURITY.md`, data disclosure, benchmark limitation, troubleshooting, and uninstall instructions. — CHANGELOG, SECURITY, data disclosure, benchmark limitation, troubleshooting, and removal documented.
 
 ## 6. Review, release, and install
 
