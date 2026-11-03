@@ -6,14 +6,14 @@ An exploration of fast, task-directed codebase retrieval for [OpenCode](https://
 
 Windsurf's Fast Context uses a specialized retrieval subagent to find relevant code before the main agent starts editing. Cognition reports that code search consumed more than 60% of the first turn in observed Windsurf and Devin sessions. Its published speed comparisons are product demonstrations, not an independent benchmark. See [Cognition's technical post](https://cognition.com/blog/swe-grep).
 
-OpenCode already has code search plugins, including [OpenCodeRAG](https://github.com/MrDoe/OpenCodeRAG) and [OpenCode Indexer](https://github.com/jbpraxxys/opencode-indexer). This project should proceed only if a retrieval subagent proves faster at finding the right code on representative repositories, without reducing accuracy.
+OpenCode already has code search plugins, including [OpenCodeRAG](https://github.com/MrDoe/OpenCodeRAG) and [OpenCode Indexer](https://github.com/jbpraxxys/opencode-indexer). This project will measure whether a focused retrieval tool finds useful code faster without losing relevant files.
 
 ## Proposed first experiment
 
-Build a small OpenCode plugin that sends a search task to a fast retrieval process. The process can use file paths, text search, and symbol references in parallel. It returns a short list of files and line ranges, with evidence for each result. Start without a persistent index or a custom model. Add either only if measurements justify it.
+First, measure DeepSeek's normal OpenCode search on reviewed code-location tasks. Then build an explicit retrieval tool that searches locally, asks Jev or Clef to rank the same bounded candidate set, and returns checked file and line citations. Start without a persistent index or a custom model.
 
-Measure wall-clock time, correct-file recall, and tokens given to the main agent against OpenCode's normal search and existing plugins. Test warm and cold repositories. Set target thresholds in an OpenSpec proposal before implementation.
+Compare total search time, relevant-file recall, and context usage against the stock DeepSeek baseline. Morph is excluded. Record first-process and reused-process runs separately.
 
 ## Project status
 
-OpenSpec is installed for OpenCode and Codex. Start the first design change with `/opsx-propose` in OpenCode or `$openspec-propose` in Codex. No implementation has been committed.
+OpenSpec is installed for OpenCode and Codex. Two changes define the work in order: [benchmark DeepSeek search](openspec/changes/benchmark-deepseek-search/proposal.md), then [add decision-guided retrieval](openspec/changes/add-decision-guided-retrieval/proposal.md). The latter includes Jev and Clef as separate options. No benchmark or plugin has run yet.

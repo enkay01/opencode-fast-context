@@ -38,3 +38,10 @@ The plugin SHALL leave built-in search tools available and return an explicit fa
 #### Scenario: Provider unavailable
 - WHEN the configured provider fails
 - THEN the caller receives fallback_required or partial with a failure reason and can continue with ordinary OpenCode search
+
+### Requirement: Compact conversation output
+The plugin SHALL keep intermediate local search results and provider exchanges out of the main conversation. It SHALL return checked file and line citations with bounded excerpts and explicit truncation.
+
+#### Scenario: Search produces many matches
+- WHEN local discovery finds more matches than the output budget permits
+- THEN the main conversation receives only selected checked citations and a truncation indicator
