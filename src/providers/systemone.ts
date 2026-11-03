@@ -190,6 +190,7 @@ export function createClefProvider(config: ClefConfig): DecisionProvider {
   return {
     id: "clef",
     model: selector,
+    maxCandidates: 12,
     score(query, candidates, options) {
       return scoreCandidates(
         "clef",

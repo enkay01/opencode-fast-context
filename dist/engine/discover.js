@@ -66,6 +66,7 @@ export async function discover(root, query, limits, options) {
             return;
         const lineResult = await exec("rg", [
             "-n",
+            "-H",
             "--no-heading",
             "--no-messages",
             "-i",

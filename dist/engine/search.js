@@ -60,12 +60,13 @@ export async function searchRepository(options) {
     if (options.provider) {
         options.onStage?.("ranking");
         const rankingStart = Date.now();
-        const shortlist = lexicalPool.slice(0, limits.rankedCandidates);
+        const providerLimit = Math.min(limits.rankedCandidates, options.provider.maxCandidates ?? limits.rankedCandidates);
+        const shortlist = lexicalPool.slice(0, providerLimit);
         const scoredCandidates = await Promise.all(shortlist.map(async (candidate) => ({
             candidate,
             checked: await readCandidateExcerpt(options.root, candidate, limits.maxFileBytes),
         })));
-        const sendable = scoredCandidates.filter((item) => item.checked !== null).slice(0, limits.rankedCandidates);
+        const sendable = scoredCandidates.filter((item) => item.checked !== null);
         try {
             const scoring = await options.provider.score(query, sendable.map(({ candidate, checked }) => ({
                 id: candidate.id,

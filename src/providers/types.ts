@@ -22,6 +22,8 @@ export interface ScoreOptions {
 export interface DecisionProvider {
   id: "jev" | "clef";
   model: string;
+  /** Optional cap on how many candidates this provider can rank inside the deadline. */
+  maxCandidates?: number;
   score(query: string, candidates: ScoreCandidate[], options: ScoreOptions): Promise<ScoreResult>;
 }
 

@@ -114,6 +114,7 @@ export function createClefProvider(config) {
     return {
         id: "clef",
         model: selector,
+        maxCandidates: 12,
         score(query, candidates, options) {
             return scoreCandidates("clef", selector, () => endpoint, { authorization: `Bearer ${config.apiToken}` }, query, candidates, options);
         },

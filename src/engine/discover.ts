@@ -101,6 +101,7 @@ export async function discover(
       "rg",
       [
         "-n",
+        "-H",
         "--no-heading",
         "--no-messages",
         "-i",

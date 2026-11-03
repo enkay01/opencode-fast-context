@@ -1,6 +1,6 @@
 export const DEFAULT_LIMITS = {
     waves: 4,
-    concurrency: 12,
+    concurrency: 8,
     candidates: 128,
     rankedCandidates: 24,
     windowLines: 24,

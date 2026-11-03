@@ -73,7 +73,7 @@ export interface Limits {
 
 export const DEFAULT_LIMITS: Limits = {
   waves: 4,
-  concurrency: 12,
+  concurrency: 8,
   candidates: 128,
   rankedCandidates: 24,
   windowLines: 24,
