@@ -3,7 +3,9 @@ import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { searchRepository } from "../src/engine/search.ts";
 import { resolveProvider, type ProviderKind } from "../src/config.ts";
-import type { SearchResult } from "../src/types.ts";
+import type { AblationStage, SearchResult } from "../src/types.ts";
+
+const STAGES: AblationStage[] = ["v0", "climb1", "climb2", "climb3"];
 import { loadCorpus, repoRoot, validateCorpus, type Corpus, type Task } from "./corpus.ts";
 import { toResult } from "./b0-parse.ts";
 import { scoreRun, type Metrics } from "./metrics.ts";
@@ -49,6 +51,9 @@ async function main(): Promise<void> {
     throw new Error(`arm ${arm.id} is not configured: ${resolution.error}`);
   }
 
+  const stage = (args.stage ?? "climb3") as AblationStage;
+  if (!STAGES.includes(stage)) throw new Error(`unknown stage: ${stage}. Use ${STAGES.join(", ")}.`);
+
   const repeat = Math.max(1, Number(args.repeat ?? 1));
   const concurrency = Math.max(1, Number(args.concurrency ?? 1));
   const records: Record[] = [];
@@ -62,6 +67,7 @@ async function main(): Promise<void> {
         root: directory,
         query: task.question,
         provider: resolution.provider,
+        limits: { ablationStage: stage },
         onStage: () => undefined,
       });
       const elapsedMs = Math.round(performance.now() - started);
@@ -102,6 +108,7 @@ async function main(): Promise<void> {
     providerModel: records[0]?.result.provider.model ?? null,
     tasks: tasks.map((task) => task.id),
     repeat,
+    stage,
     corpus: args.corpus ?? "bench/corpus/tasks.json",
     opencodeVersion: await opencodeVersion(root),
     node: process.version,
