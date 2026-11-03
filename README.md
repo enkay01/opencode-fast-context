@@ -105,7 +105,8 @@ The validation tasks were written after the retrieval code was frozen. The earli
 ## Development
 
 ```bash
-npm test                      # unit and integration tests
+npm test                      # unit and integration tests; corpus check skips without checkouts
+npm run test:corpus           # pinned corpus + checkout check (requires bench/repos)
 npm run typecheck
 npm run build
 
