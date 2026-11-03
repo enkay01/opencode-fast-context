@@ -1,4 +1,5 @@
 export type SearchStatus = "complete" | "partial" | "no_match" | "fallback_required" | "cancelled";
+export type AblationStage = "v0" | "climb1" | "climb2" | "climb3";
 export interface EvidenceRange {
     /** Inclusive, 1-based. */
     start: number;
@@ -63,5 +64,7 @@ export interface Limits {
     maxFileBytes: number;
     /** Below this top decision score, a provider-ranked search returns no_match. */
     minDecision: number;
+    /** Optional ablation stage for reproducible hill-climb experiments. */
+    ablationStage?: AblationStage;
 }
 export declare const DEFAULT_LIMITS: Limits;

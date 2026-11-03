@@ -8,6 +8,7 @@ export async function searchRepository(options) {
         ...options.limits,
         ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
     };
+    const stage = limits.ablationStage ?? "climb3";
     const deadline = started + limits.deadlineMs;
     const query = options.query.trim();
     const providerInfo = {
@@ -70,7 +71,7 @@ export async function searchRepository(options) {
         const rankingStart = Date.now();
         const providerLimit = Math.min(limits.rankedCandidates, options.provider.maxCandidates ?? limits.rankedCandidates);
         const hint = await chooseDirectory(options.provider, query, lexicalPool, deadline, options.signal);
-        const shortlist = providerShortlist(lexicalPool, providerLimit, hint);
+        const shortlist = providerShortlist(lexicalPool, providerLimit, hint, stage === "climb3" ? 2 : 1);
         const scoredCandidates = await Promise.all(shortlist.map(async (candidate) => ({
             candidate,
             checked: await readCandidateExcerpt(options.root, {
@@ -98,18 +99,20 @@ export async function searchRepository(options) {
                 usage: scoring.usage,
             };
             const scored = [];
-            const scoredPaths = new Set();
+            const scoredIds = new Set();
             for (const { candidate } of sendable) {
                 const decision = scoring.scores[candidate.id];
                 if (decision === undefined)
                     continue;
                 scored.push({ ...candidate, decisionScore: decision });
-                scoredPaths.add(candidate.path);
+                scoredIds.add(candidate.id);
             }
             scored.sort((a, b) => (b.decisionScore ?? 0) - (a.decisionScore ?? 0) ||
                 b.lexicalScore - a.lexicalScore ||
                 a.path.localeCompare(b.path));
-            const unscored = bestWindowPerFile(lexicalPool.filter((candidate) => !scoredPaths.has(candidate.path)), limits.candidates).map((candidate) => ({ ...candidate, decisionScore: null }));
+            const unscored = lexicalPool
+                .filter((candidate) => !scoredIds.has(candidate.id))
+                .map((candidate) => ({ ...candidate, decisionScore: null }));
             ranked = [...scored, ...unscored];
             if (scoring.skipped > 0) {
                 status = "partial";
@@ -138,6 +141,15 @@ export async function searchRepository(options) {
     const evidence = [];
     let usedLines = 0;
     let truncated = false;
+    // Group secondary windows per file so multi-range targets in the same file can be combined
+    const secondaryByPath = new Map();
+    if (stage === "climb3") {
+        for (const candidate of ranked) {
+            const list = secondaryByPath.get(candidate.path) ?? [];
+            list.push(candidate);
+            secondaryByPath.set(candidate.path, list);
+        }
+    }
     for (const candidate of ranked) {
         if (evidence.length >= limits.maxFiles) {
             truncated = true;
@@ -145,7 +157,21 @@ export async function searchRepository(options) {
         }
         if (evidence.some((item) => item.path === candidate.path))
             continue;
-        const checked = await readCandidateExcerpt(options.root, candidate, limits.maxFileBytes);
+        let combinedRanges = [...candidate.ranges];
+        if (stage === "climb3") {
+            const siblings = secondaryByPath.get(candidate.path) ?? [];
+            for (const sib of siblings.slice(1, 3)) {
+                const allowSibling = candidate.decisionScore !== null
+                    ? (sib.decisionScore !== null && sib.decisionScore >= limits.minDecision) ||
+                        sib.lexicalScore >= candidate.lexicalScore * 0.72
+                    : sib.lexicalScore >= candidate.lexicalScore * 0.68;
+                if (allowSibling) {
+                    combinedRanges.push(...sib.ranges);
+                }
+            }
+            combinedRanges = mergeRanges(combinedRanges);
+        }
+        const checked = await readCandidateExcerpt(options.root, { ...candidate, ranges: combinedRanges }, limits.maxFileBytes);
         if (!checked)
             continue;
         const remaining = limits.maxLines - usedLines;
@@ -191,7 +217,7 @@ export async function searchRepository(options) {
         truncated = true;
     if (discovery.timedOut && status === "complete") {
         status = "partial";
-        reason = "discovery deadline expired; results may be incomplete";
+        reason = "discovery deadline expired before all search waves completed";
     }
     return result(status, evidence, {
         truncated,
@@ -199,20 +225,59 @@ export async function searchRepository(options) {
         provider,
         timings: { discovery: discoveryMs, ranking: rankingMs, total: 0 },
         ...(reason ? { reason } : {}),
-        ...(discovery.timedOut ? { reason: reason ?? "discovery deadline expired; results may be incomplete" } : {}),
     });
 }
-/** Keep the highest-scoring window for each file, then take the best `limit` files. */
-function bestWindowPerFile(candidates, limit) {
-    const best = new Map();
-    for (const candidate of candidates) {
-        const current = best.get(candidate.path);
-        if (!current || candidate.lexicalScore > current.lexicalScore)
-            best.set(candidate.path, candidate);
+function mergeRanges(ranges) {
+    const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
+    const merged = [];
+    for (const r of sorted) {
+        const last = merged.at(-1);
+        if (last && r.start <= last.end + 2) {
+            last.end = Math.max(last.end, r.end);
+        }
+        else {
+            merged.push({ start: r.start, end: r.end });
+        }
     }
-    return [...best.values()]
-        .sort((a, b) => b.lexicalScore - a.lexicalScore || a.path.localeCompare(b.path))
-        .slice(0, limit);
+    return merged;
+}
+function bestWindowPerFile(candidates, limit, maxPerFile = 1) {
+    const counts = new Map();
+    const picked = [];
+    const topScore = candidates[0]?.lexicalScore ?? 0;
+    // Pass 1: top 1 window per file in lexical order
+    for (const candidate of candidates) {
+        if ((counts.get(candidate.path) ?? 0) >= 1)
+            continue;
+        counts.set(candidate.path, 1);
+        picked.push(candidate);
+        if (picked.length >= limit)
+            return picked;
+    }
+    // Pass 2 (if maxPerFile > 1 and budget remains, or replace tail slots with high-scoring 2nd windows of top files)
+    if (maxPerFile > 1) {
+        const secondWindows = candidates.filter((c) => {
+            const firstIdx = picked.findIndex((p) => p.path === c.path);
+            return (firstIdx !== -1 &&
+                firstIdx < 5 &&
+                picked[firstIdx].id !== c.id &&
+                c.lexicalScore >= topScore * 0.52);
+        });
+        let replaceOffset = picked.length - 1;
+        for (const sec of secondWindows.slice(0, 4)) {
+            if ((counts.get(sec.path) ?? 0) >= maxPerFile)
+                continue;
+            counts.set(sec.path, (counts.get(sec.path) ?? 0) + 1);
+            if (picked.length < limit) {
+                picked.push(sec);
+            }
+            else if (replaceOffset >= 16) {
+                picked[replaceOffset] = sec;
+                replaceOffset -= 1;
+            }
+        }
+    }
+    return picked;
 }
 async function chooseDirectory(provider, query, candidates, deadline, signal) {
     if (!provider.choose)
@@ -250,12 +315,12 @@ async function chooseDirectory(provider, query, candidates, deadline, signal) {
         return null;
     }
 }
-function providerShortlist(candidates, limit, hint) {
-    const base = bestWindowPerFile(candidates, limit);
+function providerShortlist(candidates, limit, hint, maxPerFile = 1) {
+    const base = bestWindowPerFile(candidates, limit, maxPerFile);
     if (!hint)
         return base;
-    const chosen = new Set(base.map((candidate) => candidate.path));
-    const extras = bestWindowPerFile(candidates.filter((candidate) => dirname(candidate.path) === hint), 10).filter((candidate) => !chosen.has(candidate.path));
+    const chosen = new Set(base.map((candidate) => candidate.id));
+    const extras = bestWindowPerFile(candidates.filter((candidate) => dirname(candidate.path) === hint), 10, 1).filter((candidate) => !chosen.has(candidate.id));
     const merged = [...base];
     for (const extra of extras) {
         if (merged.length < limit)
