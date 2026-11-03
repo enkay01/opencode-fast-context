@@ -121,7 +121,8 @@ export async function toResult(
   }));
   const { valid, invalid } = await validateCitations(root, normalized);
 
-  const malformed = !parsed.noAnswer && parsed.citations.length === 0;
+  const invalidOnly = parsed.citations.length > 0 && valid.length === 0;
+  const malformed = (!parsed.noAnswer && parsed.citations.length === 0) || invalidOnly;
   const status = malformed
     ? "fallback_required"
     : valid.length > 0
