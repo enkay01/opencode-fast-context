@@ -3,18 +3,18 @@
 ## 1. Corpus and baseline
 
 - [x] 1.1 Add task and run-manifest schemas with pinned repository revisions, hidden reviewed ranges, and split membership; verify malformed revisions and leaked labels are rejected by fixture tests.
-  - Implemented in `bench/corpus.ts` with a pinned corpus; validation rejects missing files and out-of-range labels. Revision checks are documented rather than enforced by a fixture test.
+  - Implemented in `bench/corpus.ts`; validation rejects missing files, out-of-range labels, and a checkout whose HEAD differs from the pinned commit (fixture test included).
 - [ ] 1.2 Prepare 24 tasks across pinned OpenCode and ripgrep checkouts, reserve eight held-out tasks, and document source review for every label; verify each range exists at its pinned revision.
   - Delivered a smaller corpus after review: 10 tasks (6 tuning, 4 held-out, 2 absent-answer) over pinned ripgrep and OpenCode commits. Expanding to 24 is still open.
 - [x] 1.3 Implement a fresh-session stock OpenCode runner with plugin disabled and explicit DeepSeek model/provider recording; verify one recorded baseline transcript uses normal tools and contains no candidate labels.
-  - `bench/b0.ts` runs `opencode run --standalone --format json` per task and records the model and raw answer.
+  - `bench/b0.ts` runs `opencode run --standalone --format json` per task in an isolated home with `plugins: []`, records the effective config hash and plugin list, validates every citation, and treats non-zero exit, timeout, or malformed output as a failure.
 - [x] 1.4 Document reproducible baseline commands and local transcript exclusions; verify a dry run writes a complete manifest without making provider calls.
   - Commands are in `BENCHMARK.md`; `bench/repos/` and `bench/runs/` are gitignored.
 
 ## 2. Measurement and comparison
 
 - [x] 2.1 Implement metric calculation and failure accounting; verify hand-scored fixtures for precision, recall, line coverage, no-answer cases, timeout, and unavailable usage.
-  - `bench/metrics.ts` covers top-1, precision@5, recall@5, line coverage, absent-answer, completion, and context size. Unit fixtures cover the provider and fallback paths; metric fixtures are exercised by the corpus runs.
+  - `bench/metrics.ts` covers top-1, fixed-denominator precision@5, recall@5, line coverage, absent-answer, completion, invalid citations, and context size. Unit tests cover denominator, failure, malformed answer, and absent-answer cases.
 - [ ] 2.2 Add repeated randomized paired scheduling and startup/cache annotations; verify a deterministic seed reproduces run order and every failed run remains in output.
   - `--repeat` and `--concurrency` exist. Randomised paired scheduling and seeding are not implemented; runs are executed sequentially in corpus order.
 - [x] 2.3 Add B1, Jev, and Clef arms using the shared retrieval engine when available; verify manifests hold the main DeepSeek model and task/output budgets constant across comparisons.

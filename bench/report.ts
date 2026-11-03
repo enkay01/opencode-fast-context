@@ -9,6 +9,7 @@ interface RecordLike {
     status: string;
     validCompletion: boolean;
     filesReturned: number;
+    invalidCitations: number;
     precisionAt5: number | null;
     recallAt5: number | null;
     top1Correct: boolean | null;
@@ -17,6 +18,7 @@ interface RecordLike {
     absentCorrect: boolean | null;
     contextChars: number;
   };
+  fallback?: { elapsedMs: number; status: string } | null;
   result: {
     truncated: boolean;
     reason?: string;
@@ -80,6 +82,17 @@ export function buildReport(manifest: Record<string, unknown>, records: RecordLi
   lines.push(`| Absent-answer correct | ${absentSummary(records)} |`);
   lines.push(`| Truncated results | ${records.filter((record) => record.result.truncated).length} |`);
   lines.push(`| Fallback required | ${records.filter((record) => record.result.status === "fallback_required").length} |`);
+  const fallbacks = records
+    .map((record) => record.fallback)
+    .filter((item): item is { elapsedMs: number; status: string } => Boolean(item));
+  lines.push(
+    `| Fallback time (median / total) | ${
+      fallbacks.length === 0
+        ? "none"
+        : `${median(fallbacks.map((item) => item.elapsedMs)) ?? "n/a"} ms / ${fallbacks.reduce((sum, item) => sum + item.elapsedMs, 0)} ms`
+    } |`,
+  );
+  lines.push(`| Invalid citations | ${records.reduce((sum, record) => sum + (record.metrics.invalidCitations ?? 0), 0)} |`);
   lines.push(
     `| Provider usage | ${usage.seen ? `${usage.input} input / ${usage.output} output tokens` : "unavailable"} |`,
   );

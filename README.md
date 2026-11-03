@@ -8,7 +8,7 @@ Fast Context is the pattern where a coding agent delegates codebase research to 
 
 - The plugin and benchmark are implemented and tested (`npm test`, 14 tests).
 - Live verification: OpenCode 2.2.5 loads the plugin and a DeepSeek session calls `fast_context_search`.
-- Measured on a small pinned corpus: median search falls from 18.5s to 5.2s with Jev ranking, but held-out recall is 0.50 against 1.00 for stock OpenCode. Absent-answer detection now works (2/2). See [BENCHMARK.md](BENCHMARK.md).
+- Measured on a small pinned corpus: Jev is 73–89% faster than stock search, but on four fresh validation tasks its recall is 0.50 against 1.00 for stock OpenCode. It does return `no_match` for both absent-answer tasks, at the cost of one false negative. See [BENCHMARK.md](BENCHMARK.md).
 - Recommendation: use it explicitly while it is measured, not as a default replacement for search.
 
 ## Install
@@ -93,14 +93,14 @@ Set `FAST_CONTEXT_DIRECTORY_HINT=1` to enable an experimental directory-first st
 
 The corpus has 10 tasks over pinned [ripgrep](https://github.com/BurntSushi/ripgrep) and [OpenCode](https://github.com/sst/opencode) checkouts, split into 6 tuning and 4 held-out tasks. Each run compares against stock OpenCode with DeepSeek:
 
-| Arm (tuning, n=6) | Median | p95 | Top-1 | Recall@5 |
-| --- | ---: | ---: | ---: | ---: |
-| Stock OpenCode + DeepSeek | 18.5s | 34.5s | 100% | 1.00 |
-| Local ranking, no provider | 1.2s | 2.4s | 33% | 0.33 |
-| Jev ranking | 5.2s | 7.1s | 50% | 0.83 |
-| Clef ranking | 6.6s | 9.0s | 50% | 0.67 |
+| Arm (fresh validation, n=4) | Median | p95 | Code top-1 | Code recall@5 | Absent |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Stock OpenCode + DeepSeek | 18.6s | 38.5s | 100% | 1.00 | 2/2 |
+| Local ranking, no provider | 0.8s | 3.3s | 50% | 0.50 | 0/2 |
+| Jev ranking | 5.1s | 7.3s | 50% | 0.50 | 2/2 |
+| Clef ranking | 6.7s | 8.7s | 0% | 0.00 | 2/2 |
 
-Held-out results are weaker: Jev keeps 56% lower median time but recall@5 falls from 1.00 to 0.50. It now returns `no_match` for both absent-answer tasks, which the first version missed. Details, method, and limitations are in [BENCHMARK.md](BENCHMARK.md).
+The validation tasks were written after the retrieval code was frozen. The earlier held-out split is now labelled `development` because it informed the no-answer threshold. B0 runs in an isolated home with `plugins: []`, verifies the pinned checkout, and validates every returned citation. Full method, tuning numbers, and limits are in [BENCHMARK.md](BENCHMARK.md).
 
 ## Development
 

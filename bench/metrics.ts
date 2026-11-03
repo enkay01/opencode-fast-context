@@ -1,10 +1,22 @@
 import type { EvidenceRange, SearchResult } from "../src/types.ts";
 import type { Task } from "./corpus.ts";
 
+export interface RunFacts {
+  /** Process-level failure: non-zero exit, timeout, or no usable answer. */
+  failed?: boolean;
+  /** A well-formed answer that was not a citation list and not an exact NO_ANSWER. */
+  malformed?: boolean;
+  /** Exact NO_ANSWER response. */
+  noAnswer?: boolean;
+  /** Citations rejected by path/range validation. */
+  invalidCitations?: number;
+}
+
 export interface Metrics {
   status: string;
   validCompletion: boolean;
   filesReturned: number;
+  invalidCitations: number;
   precisionAt5: number | null;
   recallAt5: number | null;
   top1Correct: boolean | null;
@@ -15,29 +27,41 @@ export interface Metrics {
   contextChars: number;
 }
 
-export function scoreRun(task: Task, result: SearchResult, elapsedMs: number): Metrics {
+export function scoreRun(
+  task: Task,
+  result: SearchResult,
+  elapsedMs: number,
+  facts: RunFacts = {},
+): Metrics {
   const top5 = result.results.slice(0, 5);
   const labelPaths = new Set(task.labels.map((label) => label.path));
   const contextChars = result.results.reduce((sum, evidence) => sum + evidence.excerpt.length, 0);
+  const failed = facts.failed === true || facts.malformed === true;
+  const invalidCitations = facts.invalidCitations ?? 0;
 
   if (task.absent) {
     return {
       status: result.status,
-      validCompletion: result.status === "complete" || result.status === "no_match",
+      validCompletion: !failed,
       filesReturned: result.results.length,
+      invalidCitations,
       precisionAt5: null,
       recallAt5: null,
       top1Correct: null,
       reciprocalRank: null,
       lineCoverage: null,
-      absentCorrect: result.results.length === 0,
+      absentCorrect:
+        !failed &&
+        result.results.length === 0 &&
+        (facts.noAnswer === undefined ? result.status === "no_match" : facts.noAnswer === true),
       elapsedMs,
       contextChars,
     };
   }
 
   const relevant = top5.filter((evidence) => labelPaths.has(evidence.path)).length;
-  const precisionAt5 = top5.length === 0 ? 0 : relevant / top5.length;
+  // Standard P@5: missing results count as non-relevant.
+  const precisionAt5 = relevant / 5;
   const hitPaths = new Set(top5.filter((evidence) => labelPaths.has(evidence.path)).map((evidence) => evidence.path));
   const recallAt5 = labelPaths.size === 0 ? null : hitPaths.size / labelPaths.size;
 
@@ -58,8 +82,9 @@ export function scoreRun(task: Task, result: SearchResult, elapsedMs: number): M
 
   return {
     status: result.status,
-    validCompletion: ["complete", "partial", "no_match"].includes(result.status),
+    validCompletion: !failed && ["complete", "partial", "no_match"].includes(result.status),
     filesReturned: result.results.length,
+    invalidCitations,
     precisionAt5: round(precisionAt5),
     recallAt5: recallAt5 === null ? null : round(recallAt5),
     top1Correct,

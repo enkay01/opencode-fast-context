@@ -1,112 +1,89 @@
 # Benchmark: decision-guided retrieval vs stock OpenCode
 
-Measured 2026-11-03 on one Apple Silicon Mac, OpenCode 2.2.5, Node 26.5.0. These are single-run observations on a small corpus, not a general benchmark. Re-run before citing them elsewhere.
+Measured 2026-11-03 on one Apple Silicon Mac, OpenCode 2.2.5, Node 26.5.0. One run per task per arm. Re-run before citing these numbers; they do not establish general parity.
 
-## Questions
+## Method
 
-1. Is a bounded retrieval tool faster than letting the coding agent search with normal tools?
-2. Does Jev or Clef ranking recover enough quality to justify the extra latency?
-3. Does it avoid inventing answers when the code does not exist?
-
-## Setup
-
-- **B0**: unmodified OpenCode with `opencode-go/deepseek-v4.1-flash`, normal tools, fresh `opencode run --standalone` process per task. Prompt asks only for `path:start-end` lines or `NO_ANSWER`.
-- **B1**: this engine with deterministic lexical ranking, no provider.
-- **J**: the same candidates ranked by Jev (`jev-1.14.0` via `api.typesafe.ai`).
+- **B0**: unmodified OpenCode with `opencode-go/deepseek-v4.1-flash`, normal tools, fresh `opencode run --standalone` process per task. Prompt asks only for `path:start-end` lines or an exact `NO_ANSWER`.
+- **B1**: this engine with deterministic lexical ranking, no decision provider.
+- **J**: the same candidates ranked by Jev (`jev-1.14.0`).
 - **C**: the same candidates ranked by `clef-flash` on Cloudflare Workers AI.
 
-The plugin arms run in one process through the same `searchRepository` used by the plugin, with a 10s internal deadline. Wall time includes discovery, candidate reading, provider calls, and evidence validation. B0 wall time includes CLI and model startup, as a user experiences it.
+B0 runs in a temporary `HOME` with a minimal config (`plugins: []`) and a symlinked auth file, so no user or project plugin is loaded. The runner records the effective config paths, plugin list, config hash, and each checkout's `git rev-parse HEAD`. It refuses to run if the plugin appears in the resolved plugin list, or if a checkout does not match its pinned commit.
 
-Corpus: 10 tasks over pinned public checkouts.
+B0 answers are parsed strictly. A citation is accepted only if the path stays inside the worktree, exists, and has a valid inclusive line range within the file. Anything else is dropped and counted as invalid. A run counts as a failure if the process exits non-zero or times out. An empty answer is a correct no-answer only when the response is exactly `NO_ANSWER`; an empty or unparseable answer without it is malformed and not a valid absent answer.
+
+Corpus: 14 tasks over two pinned checkouts.
 
 - ripgrep `e89fff89ac9af12e8d4ce9d5fd07beb408ca730f` (tag 15.2.0)
 - OpenCode `6d1c444b8c53da667b51ed45b0a7c0aca1174674`
 
-Six tasks were used for tuning (5 code-location, 1 config-location). The held-out set has two code-location tasks and two absent-answer tasks. Labels were reviewed by reading the pinned source; they include files that explain behavior even when a fix might not edit them.
+Splits:
 
-## Metrics
+- **tuning** (6): used while building discovery and ranking.
+- **development** (4): the original held-out set. It exposed a 0/2 absent-detection result and informed the 0.15 threshold, so it is development data now, not held-out.
+- **validation** (4, 2 code + 2 absent): written after the retrieval code was frozen. These tasks were not used for any tuning decision.
 
-- **Top-1**: first returned file is a labelled file.
-- **Precision@5**: labelled files among the first five / five.
-- **Recall@5**: labelled files found in the first five / all labelled files.
-- **Line coverage**: fraction of labelled lines covered by returned ranges for that file.
-- **Absent correct**: returned no evidence for a task with no answer in the repository.
+Metrics: top-1, recall@5, fixed-denominator precision@5 (relevant among the first five divided by five, so one relevant result scores 0.20), line coverage, and absent-answer accuracy. Valid completion means the run finished with a usable result and was not a process failure or malformed answer. Fallback time is recorded separately when a candidate arm asks the caller to fall back.
 
-Raw records and transcripts are in the local `bench/runs/` directory and are intentionally not published; they contain excerpts of repository source.
-
-## Results: tuning split (n=6, one run each)
-
-| Arm | Median ms | p95 ms | Δ median vs B0 | Top-1 | Recall@5 | Line coverage | Valid |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| B0 stock OpenCode + DeepSeek | 18,516 | 34,544 | — | 100% | 1.00 | 0.87 | 100% |
-| B1 local ranking | 1,189 | 2,434 | -94% | 33% | 0.33 | 0.17 | 100% |
-| Jev ranking | 5,244 | 7,126 | -72% | 50% | 0.83 | 0.27 | 100% |
-| Clef ranking | 6,628 | 8,962 | -64% | 50% | 0.67 | 0.23 | 100% |
-
-## Results: held-out split (n=4: 2 code, 2 absent)
+## Results: fresh validation split (primary)
 
 | Arm | Median ms | p95 ms | Δ median vs B0 | Code top-1 | Code recall@5 | Line coverage | Absent correct | Valid |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| B0 stock OpenCode + DeepSeek | 11,199 | 19,588 | — | 100% | 1.00 | 0.12 | 2/2 | 100% |
-| B1 local ranking | 1,654 | 3,310 | -85% | 50% | 0.50 | 0.07 | 0/2 | 100% |
-| Jev ranking | 4,954 | 8,397 | -56% | 0% | 0.50 | 0.07 | 2/2 | 100% |
-| Clef ranking | 6,698 | 10,013 | -40% | 50% | 0.50 | 0.07 | 1/2 | 100% |
+| B0 stock OpenCode + DeepSeek | 18,636 | 38,525 | — | 100% | 1.00 | 0.61 | 2/2 | 100% |
+| B1 local ranking | 790 | 3,346 | -96% | 50% | 0.50 | 0.00 | 0/2 | 100% |
+| Jev ranking | 5,064 | 7,325 | -73% | 50% | 0.50 | 0.10 | 2/2 | 100% |
+| Clef ranking | 6,747 | 8,705 | -64% | 0% | 0.00 | 0.00 | 2/2 | 100% |
 
-Jev finds the correct held-out file for `rg-max-columns` but ranks it second to fifth, so top-1 is zero. B0 finds both held-out code files first. Line coverage is low across all plugin arms: they locate files less precisely than the baseline.
+On the two fresh code tasks, Jev returned the correct file for `oc-permission-effect` (top-1) and a false `no_match` for `rg-type-matcher`. The false `no_match` is a threshold error, not a ranking error: the best relevance score fell below 0.15. Clef found neither file. Both decision arms rejected both absent tasks.
+
+## Results: tuning split (used for development)
+
+| Arm | Median ms | p95 ms | Δ median vs B0 | Top-1 | Recall@5 | Line coverage | Valid |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| B0 stock OpenCode + DeepSeek | 44,172 | 169,146 | — | 100% | 1.00 | 0.88 | 100% |
+| B1 local ranking | 844 | 1,726 | -98% | 33% | 0.33 | 0.17 | 100% |
+| Jev ranking | 4,688 | 6,021 | -89% | 50% | 0.83 | 0.27 | 100% |
+| Clef ranking | 6,072 | 6,886 | -86% | 50% | 0.67 | 0.23 | 100% |
+
+The B0 p95 comes from one 169-second run (`oc-default-model`). B0's time is highly variable because the agent decides how much to explore.
 
 ## What this shows
 
-**The speed gain is real.** Jev ranking cuts median time by 72% on tuning and 56% on held-out. Most of the remaining time is the decision model: discovery is 0.1–2.4s, ranking is 3–5s. B1 shows local search alone is roughly 15–25x faster than B0 on tuning tasks, but far less accurate.
+**Speed holds.** Jev is 89% faster on tuning and 73% faster on fresh validation. Most candidate time is provider scoring, not local search. B1 shows local search alone is roughly 20–50x faster than B0 but much less accurate.
 
-**Absent-answer detection now works.** Both held-out absent tasks return `no_match` with Jev, up from 0/2 in the first run. The engine returns `no_match` when the best relevance judgment falls below 0.15. That threshold was chosen from tuning scores and validated on the held-out set; a threshold of 0.45 was too aggressive and rejected one real answer.
+**Quality does not hold on fresh tasks.** Jev's fresh-set recall is 0.50, the same as the old development set, and it fails one task through an over-eager no-answer threshold. B0 recalls both code files and both absent tasks. The speed gain is real; the accuracy claim is not established.
 
-**The recall problem is unchanged on held-out.** Jev recalls 0.83 of labelled files on tuning and 0.50 on held-out, against 1.00 for B0 on both. The remaining held-out miss is a paraphrase ("where can a plugin list, add, update, or remove tools") whose target file never entered the 24-file scoring shortlist. No ranker can recover it. Fixing that needs broader discovery, not better judgment.
+**No-answer detection is a threshold tradeoff, not a solved problem.** With 0.15, Jev rejected both unseen absent tasks and one real task. Lowering the threshold would recover `rg-type-matcher` but may accept absent questions again. Four validation tasks are too few to pick a better operating point.
 
-**Jev beat Clef here.** Clef is capped at 12 candidates because its REST endpoint was slower per call; that cap cost it coverage, and one held-out run hit the 10s deadline. This measures these endpoints from this machine, not the models in general.
+**Jev beat Clef here.** Clef stays capped at 12 candidates because its REST endpoint was slower per call. On fresh tasks it found neither code file. This measures these endpoints from this machine, not the models in general.
 
-## Changes made after the first benchmark
+## Review fixes applied
 
-- Fixed path parsing when a single file was searched, which had hidden matches.
-- Score one window per file, so 24 provider calls cover 24 files instead of a few repeated files.
-- Rank scored candidates above unscored ones. Unscored lexical leftovers previously outranked judged evidence.
-- Read a wider window for the provider (8 lines before, 12 after) so comment-only matches still show the code that follows.
-- Penalize locale/translation files and translation tables, which dominated lexical scores in the OpenCode repository.
-- Add the relevance threshold for `no_match`.
-- Add directory-first navigation as an opt-in experiment (`FAST_CONTEXT_DIRECTORY_HINT=1`): one choice call picks a directory and adds its files to the scoring shortlist. It added about 0.5s and did not improve recall on this corpus, so it is off by default.
+- B0 failure handling: non-zero exits and timeouts are failures; an empty answer without exact `NO_ANSWER` is malformed and never counted as a correct absent answer.
+- Citation validation: paths must stay inside the worktree and ranges must fit the file; invalid citations are dropped and counted.
+- Baseline isolation: temporary HOME with `plugins: []`, recorded and hashed effective config, and explicit rejection if this plugin appears. Checkout HEAD is compared with the pinned commit before any task runs.
+- Precision@5 now uses a fixed denominator of five. Tests cover one-result and five-result cases.
+- Discovery timeouts now return `fallback_required` instead of `no_match`. The candidate runner measures ordinary-search fallback separately when it is invoked.
+- A fresh `validation` split was added; the old held-out split is relabelled `development` and no longer used for claims.
 
-## Targets from the proposal
+## Limits
 
-| Target | Result |
-| --- | --- |
-| ≥25% lower median than B0 | Met on tuning (-72%) and held-out (-56%) |
-| ≤2pp lower macro recall@5 | Not met (-17pp tuning, -50pp held-out) |
-| p95 no worse than B0 | Met on both splits |
-| ≥95% valid completion | Met (100% of runs returned a usable result) |
-
-The speed and reliability targets pass; the quality target fails. That is the reason the plugin stays opt-in and explicit rather than replacing normal search.
-
-## Threats to validity
-
-- One repetition per task. Provider latency and model nondeterminism are not averaged.
-- Ten tasks, two repositories, four held-out. Too small to claim general parity.
+- One run per task. B0 varies from 16 to 169 seconds across tasks, and the model was nondeterministic: one smoke run answered `NO_ANSWER` for `rg-type-matcher`, a later run answered correctly.
+- Four fresh tasks cannot establish generalization.
 - Both repositories are popular and may appear in model training data.
-- B0 is a generative agent with tools and can follow cross-file relationships; the plugin's first version deliberately does not. The comparison measures the current products, not an equal architecture.
-- Wall time includes different startup paths (CLI process vs in-process engine). B0's cost is what a user actually waits for; a long-lived OpenCode session may start faster.
-- Providers were reached over the public network from one machine on one day.
+- Isolation removes plugins but OpenCode still reads host-level `.opencode` command/skill directories. The recorded config shows no plugins; that does not make the host bit-for-bit stock.
+- No candidate arm triggered `fallback_required` on the validation split, so fallback timing is implemented but unmeasured there.
+- Provider latency is a single day of public-network calls from one machine.
 
 ## Reproduce
 
 ```bash
-# local checkouts and a DeepSeek-capable OpenCode
-node bench/run.ts --arm lexical --split tuning
-node bench/run.ts --arm jev --split tuning
-node bench/run.ts --arm clef --split tuning
-node bench/b0.ts --split tuning
-node bench/compare.ts bench/runs/b0-tuning bench/runs/jev-tuning
-
-# held-out, after freezing the implementation
-node bench/run.ts --arm jev --split held-out
-node bench/b0.ts --split held-out
+node bench/b0.ts --split validation            # isolated stock baseline
+node bench/run.ts --arm jev --split validation
+node bench/run.ts --arm clef --split validation
+node bench/run.ts --arm lexical --split validation
+node bench/compare.ts bench/runs/b0-validation bench/runs/jev-validation
 ```
 
-`bench/b0.ts` accepts `--model` and `--repeat`. `bench/run.ts` accepts `--tasks`, `--repeat`, `--concurrency`, and `--out`.
+Run directories are local and gitignored because they contain repository excerpts.

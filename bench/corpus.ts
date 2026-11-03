@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { exec } from "../src/engine/files.ts";
 import { join, resolve } from "node:path";
 import type { EvidenceRange } from "../src/types.ts";
 
@@ -10,7 +11,7 @@ export interface Label {
 export interface Task {
   id: string;
   repo: string;
-  split: "tuning" | "held-out";
+  split: "tuning" | "held-out" | "development" | "validation";
   question: string;
   labels: Label[];
   /** True when no code in the repository answers the question. */
@@ -48,6 +49,19 @@ export function repoRoot(root: string, corpus: Corpus, repoName: string): string
 /** Verify every label points at a real file and line range in the pinned checkout. */
 export async function validateCorpus(root: string, corpus: Corpus): Promise<string[]> {
   const errors: string[] = [];
+
+  for (const [name, repo] of Object.entries(corpus.repos)) {
+    const directory = resolve(root, repo.path);
+    const head = await exec("git", ["rev-parse", "HEAD"], { cwd: directory, timeoutMs: 10_000 });
+    if (head.code !== 0) {
+      errors.push(`${name}: not a readable git checkout at ${repo.path}`);
+      continue;
+    }
+    if (head.stdout.trim() !== repo.commit) {
+      errors.push(`${name}: checkout HEAD ${head.stdout.trim()} does not match pinned ${repo.commit}`);
+    }
+  }
+
   for (const task of corpus.tasks) {
     if (!corpus.repos[task.repo]) {
       errors.push(`${task.id}: unknown repo ${task.repo}`);

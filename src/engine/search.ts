@@ -68,10 +68,17 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   }
 
   if (discovery.candidates.length === 0) {
+    if (discovery.timedOut) {
+      return result("fallback_required", [], {
+        candidateCount: 0,
+        timings: { discovery: discoveryMs, ranking: 0, total: 0 },
+        reason: "discovery deadline expired before any candidate was found",
+      });
+    }
     return result("no_match", [], {
       candidateCount: 0,
       timings: { discovery: discoveryMs, ranking: 0, total: 0 },
-      ...(discovery.timedOut ? { reason: "discovery deadline expired" } : { reason: "no lexical candidates" }),
+      reason: "no lexical candidates",
     });
   }
 
@@ -228,6 +235,11 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   }
 
   if (discovery.candidates.length > evidence.length) truncated = true;
+
+  if (discovery.timedOut && status === "complete") {
+    status = "partial";
+    reason = "discovery deadline expired; results may be incomplete";
+  }
 
   return result(status, evidence, {
     truncated,

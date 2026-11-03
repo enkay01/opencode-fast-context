@@ -1,9 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { searchRepository } from "../src/engine/search.ts";
 import { resolveProvider, type ProviderKind } from "../src/config.ts";
 import type { SearchResult } from "../src/types.ts";
 import { loadCorpus, repoRoot, validateCorpus, type Corpus, type Task } from "./corpus.ts";
+import { toResult } from "./b0-parse.ts";
 import { scoreRun, type Metrics } from "./metrics.ts";
 import { buildReport } from "./report.ts";
 
@@ -26,6 +28,7 @@ interface Record {
   elapsedMs: number;
   metrics: Metrics;
   result: SearchResult;
+  fallback: { elapsedMs: number; status: string; resultFiles: number } | null;
 }
 
 async function main(): Promise<void> {
@@ -62,7 +65,13 @@ async function main(): Promise<void> {
         onStage: () => undefined,
       });
       const elapsedMs = Math.round(performance.now() - started);
-      const metrics = scoreRun(task, result, elapsedMs);
+      const metrics = scoreRun(task, result, elapsedMs, {
+        failed: result.status === "fallback_required" && result.results.length === 0,
+        invalidCitations: 0,
+      });
+      const fallback = result.status === "fallback_required"
+        ? await measureFallback(task, directory, args)
+        : null;
       records.push({
         taskId: task.id,
         arm: arm.label,
@@ -71,11 +80,14 @@ async function main(): Promise<void> {
         elapsedMs,
         metrics,
         result,
+        fallback,
       });
       process.stdout.write(
         `${arm.label} · ${task.id} · ${result.status} · ${elapsedMs}ms · ` +
           `P@5=${format(metrics.precisionAt5)} R@5=${format(metrics.recallAt5)} ` +
-          `lines=${format(metrics.lineCoverage)}\n`,
+          `lines=${format(metrics.lineCoverage)}` +
+          (fallback ? ` · fallback ${fallback.elapsedMs}ms (${fallback.status})` : "") +
+          "\n",
       );
     }
   }
@@ -118,10 +130,59 @@ function format(value: number | null): string {
   return value === null ? "n/a" : value.toFixed(2);
 }
 
-async function opencodeVersion(root: string): Promise<string | null> {
-  return readFile(join(root, "package.json"), "utf8")
-    .then(() => process.env.OPENCODE_VERSION ?? null)
-    .catch(() => null);
+async function measureFallback(
+  task: Task,
+  directory: string,
+  args: Record<string, string | undefined>,
+): Promise<{ elapsedMs: number; status: string; resultFiles: number }> {
+  const model = args.model ?? process.env.B0_MODEL ?? "opencode-go/deepseek-v4.1-flash";
+  const prompt =
+    "Find the code that answers this question. Reply only with repository-relative paths and inclusive " +
+    "line ranges in the form path:start-end, one per line. If the repository has no such code, reply exactly " +
+    `NO_ANSWER.\n\nQuestion: ${task.question}`;
+  const started = performance.now();
+  const answer = await captureText(
+    ["opencode", "run", "--standalone", "--model", model, "--auto", "--format", "json", prompt],
+    directory,
+    Number(args.timeout ?? 180_000),
+  );
+  const parsed = await toResult(task.question, answer, directory, task.repo);
+  return {
+    elapsedMs: Math.round(performance.now() - started),
+    status: parsed.result.status,
+    resultFiles: parsed.result.results.length,
+  };
+}
+
+function captureText(command: string[], cwd: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolvePromise) => {
+    const child = spawn(command[0] as string, command.slice(1), { cwd, stdio: ["ignore", "pipe", "ignore"] });
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolvePromise("");
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      let text = "";
+      for (const line of Buffer.concat(chunks).toString("utf8").split("\n")) {
+        if (!line.startsWith("{")) continue;
+        try {
+          const event = JSON.parse(line);
+          if (event.type === "text" && typeof event.part?.text === "string") text = event.part.text;
+        } catch {
+          // ignore
+        }
+      }
+      resolvePromise(text);
+    });
+  });
+}
+
+async function opencodeVersion(_root: string): Promise<string | null> {
+  return process.env.OPENCODE_VERSION ?? null;
 }
 
 function parseArgs(argv: string[]): Record<string, string | undefined> {

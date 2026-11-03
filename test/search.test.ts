@@ -112,3 +112,18 @@ test("keeps the model-facing view compact", async () => {
     await fixture.cleanup();
   }
 });
+
+test("a discovery timeout reports fallback_required rather than no_match", async () => {
+  const fixture = await makeFixture(REPO);
+  try {
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "Where is retryDelay computed?",
+      limits: { deadlineMs: 1 },
+    });
+    assert.equal(result.status, "fallback_required");
+    assert.match(result.reason ?? "", /discovery deadline/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
