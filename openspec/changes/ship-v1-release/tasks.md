@@ -20,23 +20,23 @@
 - [x] 3.1 Make `TYPESAFE_API_KEY` the only public credential source and fail clearly when it is absent. — Missing `TYPESAFE_API_KEY` returns `fallback_required` without local ranking.
 - [x] 3.2 Remove the public endpoint override and keep transport injection internal to tests. — Endpoint injection is internal to tests; `TYPESAFE_ENDPOINT` is ignored.
 - [x] 3.3 Expand sensitive-file exclusions and add outbound content rejection/redaction before every provider request. — Exclusions expanded; private-key blocks rejected; token patterns redacted before provider requests.
-- [x] 3.4 Sanitize provider errors so response bodies, headers, queries, excerpts, and credentials cannot reach output or logs. — Errors expose provider, status, and request id only.
-- [x] 3.5 Add tests with dummy credentials and hostile provider responses; assert the credential and source marker are absent from logs, errors, snapshots, and tool output. — Dummy credentials and hostile responses are covered by tests.
+- [x] 3.4 Sanitize provider errors so response bodies, headers, queries, excerpts, and credentials cannot reach output or logs. — Errors expose provider and status; request IDs are included only when they match `^[A-Za-z0-9-]{1,64}$`. Hostile-header test added.
+- [x] 3.5 Add tests with dummy credentials and hostile provider responses; assert the credential and source marker are absent from logs, errors, snapshots, and tool output. — Dummy credentials and hostile responses are covered; final tool content and metadata, including fallback evidence, are redacted and tested.
 
 ## 4. Make installation one-shot
 
 - [x] 4.1 Add `scripts/setup-opencode.mjs` and `npm run setup:opencode` with project and global scopes. — `scripts/setup-opencode.mjs` and `npm run setup:opencode` support project and global scopes.
-- [x] 4.2 Preserve JSON/JSONC configuration and existing plugins, write atomically, pin the plugin target, and make reruns a no-op. — Setup preserves JSONC text, existing plugins, writes atomically, pins the target, and is a no-op on rerun.
+- [x] 4.2 Preserve JSON/JSONC configuration and existing plugins, write atomically, pin the plugin target, and make reruns a no-op. — Setup parses JSONC, edits only the actual `plugins` entries, preserves surrounding text, re-parses the result, and is a no-op on rerun; comments and unrelated `fast-context` text are tested.
 - [x] 4.3 Check prerequisites and credential presence without reading or printing the value. — Prerequisites and credential presence are checked without reading or printing the value.
 - [x] 4.4 Verify the installed plugin ID and print an exact removal command. — Plugin identity is imported and verified; removal command is printed.
 - [x] 4.5 Add concise human instructions and a root `AGENTS.md` one-shot instruction. — README and root AGENTS.md document human and agent setup.
 
 ## 5. Add release verification
 
-- [x] 5.1 Add `verify:release` for typecheck, tests, build, package allowlist validation, and an OpenCode 2 load/tool-call smoke test. — `verify:release` runs typecheck, tests, build, allowlist, and mocked OpenCode 2 tool-call smoke.
+- [x] 5.1 Add `verify:release` for typecheck, tests, build, package allowlist validation, and an OpenCode 2 load/tool-call smoke test. — `verify:release` runs typecheck, tests, build, mocked API smoke, real OpenCode 2.2.5 runtime load, allowlist, packed/tree/history scans, and clean-tree checks.
 - [x] 5.2 Scan the current tree, Git history, and packed artifact for credential patterns. — Tracked tree, Git history, and packed tarball are scanned.
-- [x] 5.3 Reject source maps containing absolute local paths or embedded source content. — Source maps disabled and rejected by verification.
-- [x] 5.4 Add CI for a clean clone and the supported runtime matrix. — CI workflow runs verify:release on Node 22, 24, and 26; first GitHub run pending.
+- [x] 5.3 Reject source maps containing absolute local paths or embedded source content. — Source maps disabled and rejected; absolute-path detection covers macOS, Linux, Windows drive paths, and UNC paths.
+- [x] 5.4 Add CI for a clean clone and the supported runtime matrix. — CI workflow runs verify:release on Node 22, 24, and 26 with OpenCode installed; protected publish workflow added; first GitHub run pending.
 - [x] 5.5 Add `CHANGELOG.md`, `SECURITY.md`, data disclosure, benchmark limitation, troubleshooting, and uninstall instructions. — CHANGELOG, SECURITY, data disclosure, benchmark limitation, troubleshooting, and removal documented.
 
 ## 6. Review, release, and install
