@@ -84,3 +84,19 @@ test("a provider that returns no scores does not crash the search", async () => 
     await fixture.cleanup();
   }
 });
+
+test("low relevance judgments return no_match instead of weak results", async () => {
+  const fixture = await makeFixture(REPO);
+  try {
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "Where is the persistent vector index rebuilt?",
+      provider: stubProvider(() => 0.02),
+    });
+    assert.equal(result.status, "no_match");
+    assert.equal(result.results.length, 0);
+    assert.match(result.reason ?? "", /threshold/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
