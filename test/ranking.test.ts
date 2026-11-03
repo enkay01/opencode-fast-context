@@ -90,7 +90,7 @@ test("low relevance judgments return no_match instead of weak results", async ()
   try {
     const result = await searchRepository({
       root: fixture.root,
-      query: "Where is the persistent vector index rebuilt?",
+      query: "Where is retryDelay computed?",
       provider: stubProvider(() => 0.02),
     });
     assert.equal(result.status, "no_match");
