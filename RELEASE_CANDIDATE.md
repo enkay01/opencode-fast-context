@@ -1,11 +1,19 @@
 # V1 release candidate
 
 - Branch: `work/retrieval-hill-climb`
-- Verified code commit: `6523c6c`
+- Verified code commit: `0cf8454`
 - Version: `0.1.0`
 - Supported runtime: OpenCode 2 (`>=2.2.0 <3`), tested with 2.2.5; Node 22.18+
 - Packed artifact: `opencode-fast-context-0.1.0.tgz`, 29 files, SHA-256 `d4d47e9da18c8cfa7e28e3f5382d2a3ec906bde5ecd8f0336a160c4ff2201a51`
 - Status: **release candidate, fixes applied; awaiting re-review. Not tagged, published, or installed.**
+
+## Third re-review fix
+
+| Prior finding | Fix | Reproduction |
+| --- | --- | --- |
+| A config holding an old and the current spec kept both entries: the `Already configured; no change` branch fired when *any* entry matched the target, before the exactly-one-entry rule. Two identical target entries had the same defect. | `scripts/setup-opencode.mjs` now computes `owned` first and enters the no-change path only when `owned.length === 1` and that entry is the exact target. Every other owned state falls through to normalization, which keeps one entry rewritten to the target, then verifies both the candidate text and the file after the atomic write. | `test/setup.test.ts`: “setup normalizes duplicate Fast Context entries to one exact target” covers `["…@0.0.9", "…@0.1.0"]` and two identical target entries, asserts a single exact entry survives in each case, and asserts `no change` only for the lone exact entry. The reviewer's predicate check now reports `exact: true`, `owned: 2`, `configured: false`. |
+
+Clean-clone verification was repeated at `0cf8454` in `/tmp/r3review/repo` (directory name `repo`): `npm ci --ignore-scripts && npm run verify:release` passed 68 tests, typecheck, build, both smokes, package and secret checks, and the clean-tree check. `npm pack --json --ignore-scripts` is still 29 files with SHA-256 `d4d47e9d…2201a51`, unchanged because only `scripts/` and `test/` moved.
 
 ## Second re-review fixes
 
@@ -32,7 +40,7 @@ Clean-clone verification was repeated in `/tmp/rereview/repo` (directory name `r
 ```bash
 node --test test/provider-boundary.test.ts   # findings 1, 6
 node --test test/redact.test.ts              # finding 2
-node --test test/setup.test.ts               # finding 3 and nested-array regression
+node --test test/setup.test.ts               # finding 3, nested-array and duplicate-entry regressions
 node --test test/runtime-smoke.test.ts       # clone-directory regression
 node scripts/smoke-runtime.mjs               # finding 4 (OpenCode 2.2.5)
 npm run verify:release                       # finding 5 and full gate
@@ -40,10 +48,10 @@ npm run verify:release                       # finding 5 and full gate
 
 ## Verification
 
-`npm run verify:release` passed on `17159ff` from a clean tree:
+`npm run verify:release` passed on `0cf8454` from a clean tree:
 
 - typecheck
-- 59 tests
+- 68 tests
 - build
 - mocked OpenCode 2 API registration and tool call
 - real OpenCode 2.2.5 runtime load of `dist/index.js` (isolated HOME/XDG, invalid model, no provider call)
@@ -104,7 +112,7 @@ package.json
 
 ## Outstanding gates
 
-1. Code Review Partner re-review of `17159ff` against the six findings and this handoff.
+1. Code Review Partner re-review of `0cf8454` against the seven findings and this handoff.
 2. Fix accepted findings and re-review.
 3. Clean checkout, tag `v0.1.0`, publish via the protected workflow.
 4. Install the exact reviewed version without storing or printing `TYPESAFE_API_KEY`.
