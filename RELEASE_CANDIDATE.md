@@ -1,11 +1,20 @@
 # V1 release candidate
 
 - Branch: `work/retrieval-hill-climb`
-- Verified code commit: `8576ce0`
+- Verified code commit: `6523c6c`
 - Version: `0.1.0`
 - Supported runtime: OpenCode 2 (`>=2.2.0 <3`), tested with 2.2.5; Node 22.18+
 - Packed artifact: `opencode-fast-context-0.1.0.tgz`, 29 files, SHA-256 `d4d47e9da18c8cfa7e28e3f5382d2a3ec906bde5ecd8f0336a160c4ff2201a51`
 - Status: **release candidate, fixes applied; awaiting re-review. Not tagged, published, or installed.**
+
+## Second re-review fixes
+
+| Prior finding | Fix | Reproduction |
+| --- | --- | --- |
+| Runtime smoke assumed the clone directory was named `opencode-fast-context` | `scripts/smoke-runtime.mjs` parses the logged `entrypoint=file://…` and compares its resolved path with `<clone>/dist/index.js`. | `test/runtime-smoke.test.ts` uses a clone path named `repo` and rejects a different checkout. |
+| Setup could edit a nested `plugins` array, or stop at `]` inside a comment | `findPluginsArray` now scans only the top-level property, and the array scan skips comments and strings. The candidate text is parsed and checked before the atomic write. | `test/setup.test.ts`: nested `other.plugins` stays intact; `]` inside a plugins comment is handled. |
+
+Clean-clone verification was repeated in `/tmp/rereview/repo` (directory name `repo`): `npm ci --ignore-scripts && npm run verify:release` passed.
 
 ## Review fixes from `c15a652`
 
@@ -23,7 +32,8 @@
 ```bash
 node --test test/provider-boundary.test.ts   # findings 1, 6
 node --test test/redact.test.ts              # finding 2
-node --test test/setup.test.ts               # finding 3
+node --test test/setup.test.ts               # finding 3 and nested-array regression
+node --test test/runtime-smoke.test.ts       # clone-directory regression
 node scripts/smoke-runtime.mjs               # finding 4 (OpenCode 2.2.5)
 npm run verify:release                       # finding 5 and full gate
 ```
