@@ -359,8 +359,10 @@ async function main() {
   }
 
   const entries = pluginEntries(parsed);
-  const present = entries.some((entry) => isFastContextEntry(entry, target));
-  const exact = entries.some((entry) => isExactTarget(entry, target));
+  const owned = entries.filter((entry) => isFastContextEntry(entry, target));
+  const present = owned.length > 0;
+  /** Only a lone, exact entry is already configured; duplicates must be normalized. */
+  const configured = owned.length === 1 && isExactTarget(owned[0], target);
 
   if (args.remove) {
     if (!present) {
@@ -383,7 +385,7 @@ async function main() {
     return;
   }
 
-  if (exact) {
+  if (configured) {
     await verifyIdentity(target);
     console.log(`Already configured in ${config.path}; no change.`);
     console.log(`Plugin id: ${PLUGIN_ID}`);

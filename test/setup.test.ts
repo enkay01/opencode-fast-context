@@ -177,6 +177,54 @@ test("setup upgrades an older pinned version instead of claiming no change", asy
   }
 });
 
+test("setup normalizes duplicate Fast Context entries to one exact target", async () => {
+  const setup = await import("../scripts/setup-opencode.mjs");
+  const root = await mkdtemp(join(tmpdir(), "fast-context-duplicates-"));
+  const config = join(root, "opencode.json");
+  const targetSpec = "opencode-fast-context@0.1.0";
+  const env = {
+    ...process.env,
+    FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",
+    TYPESAFE_API_KEY: "dummy-setup-key",
+  };
+  const run = () =>
+    execFileSync(
+      "node",
+      [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "project", "--package", targetSpec],
+      { cwd: root, env, encoding: "utf8" },
+    );
+  const ownedEntries = async () => {
+    const parsed = setup.parseConfig(await readFile(config, "utf8"));
+    return setup.pluginEntries(parsed).filter((entry: unknown) => setup.isFastContextEntry(entry, targetSpec));
+  };
+
+  try {
+    // Both an old and the current spec: the exact entry must not mask the old one.
+    await writeFile(
+      config,
+      '{"plugins":["opencode-fast-context@0.0.9","opencode-fast-context@0.1.0"]}\n',
+    );
+    assert.match(run(), /Updated/);
+    let owned = await ownedEntries();
+    assert.equal(owned.length, 1);
+    assert.equal(setup.isExactTarget(owned[0], targetSpec), true);
+    assert.ok(!(await readFile(config, "utf8")).includes("0.0.9"));
+
+    // Two identical target entries: still duplicated, still normalized.
+    await writeFile(config, `{"plugins":["${targetSpec}","${targetSpec}"]}\n`);
+    assert.match(run(), /Updated/);
+    owned = await ownedEntries();
+    assert.equal(owned.length, 1);
+    assert.equal(setup.isExactTarget(owned[0], targetSpec), true);
+
+    // A lone exact entry is the only state that reports no change.
+    assert.match(run(), /no change/);
+    assert.equal((await ownedEntries()).length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("setup replaces a different local checkout with the requested checkout", async () => {
   const root = await mkdtemp(join(tmpdir(), "fast-context-checkout-"));
   const oldCheckout = join(root, "old-checkout");
