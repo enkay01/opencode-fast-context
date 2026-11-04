@@ -138,7 +138,8 @@ Use `--scope project` if it was installed locally. Restart OpenCode after changi
 
 ## Troubleshooting
 
-- **Tool missing**: confirm OpenCode 2, run `opencode plugin list`, and restart after setup.
+- **Tool missing after install**: restart the background service with `opencode service restart`, then start a new session. Existing sessions keep their old tool catalog. `opencode plugin list` does not show local-path plugins; use `opencode api GET /api/plugin` instead.
+- **Key works in a terminal but not the app**: the `opencode` shell wrapper only affects processes launched from that shell. The background service and a Dock-launched app do not inherit it. Restart the service from the wrapped shell, or launch OpenCode from that terminal.
 - **`TYPESAFE_API_KEY is not set`**: export the key in the environment that launches OpenCode. Do not add it to configuration.
 - **Frequent `fallback_required`**: check provider status and the configured model. Ordinary search is unaffected.
 - **`no_match` on a real question**: the candidate pool did not contain a passing match. Try more specific identifiers.
