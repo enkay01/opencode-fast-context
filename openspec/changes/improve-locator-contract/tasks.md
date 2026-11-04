@@ -21,12 +21,12 @@
 - [ ] 3.3 Format it in `formatForModel` so the negative result reads as bounded.
 - [ ] 3.4 Test: `no_match` reports scope; deadline truncation sets the flag; `complete` carries the same field.
 
-## 4. Down-weight the observed noise
+## 4. Align the provider prompts
 
-- [ ] 4.1 Add the design-export multiplier for `.html` / `.css` under design directories in `src/engine/discover.ts`.
-- [ ] 4.2 Add the entry-file multiplier for `App.tsx`, `App.jsx`, `main.tsx`, `index.tsx` at a source root, applied only when no query token matches the file name.
-- [ ] 4.3 Test both penalties, including the token-match case where no penalty applies.
-- [ ] 4.4 Re-run the held-out benchmark tasks and record Recall@5 against the pre-change value.
+- [ ] 4.1 Rewrite the relevance prompt in `src/providers/types.ts` line 57 to ask whether the snippet is relevant context, not whether it answers the question.
+- [ ] 4.2 Rewrite the matching prompt in `src/providers/systemone.ts` line 125 to the same framing.
+- [ ] 4.3 Update prompt tests to the new wording and confirm no test asserts the "answers" phrasing.
+- [ ] 4.4 Re-run the held-out benchmark tasks and record Recall@5 against the pre-change value. Discovery scoring is unchanged.
 
 ## 5. Verify
 
@@ -34,3 +34,9 @@
 - [ ] 5.2 GitHub Actions verification passes on Node 22, 24, and 26.
 - [ ] 5.3 One live `fast_context_search` call confirms the new description is what the agent sees and the scope field appears on a real `no_match`.
 - [ ] 5.4 Code Review Partner reviews this change against the proposal before merge.
+
+## Deferred, not in this change
+
+- [ ] Diagnose relevance with stage traces: capture discovery candidates, Jev scores, and final selection for representative queries to find where distractors enter.
+- [ ] Build comparison cases where HTML, design artifacts, and `App.tsx` are the intended context, alongside cases where they are not.
+- [ ] Only after those, decide whether any scoring rule is warranted. Do not return fewer results than requested unless measurements show weak candidates filling the count.

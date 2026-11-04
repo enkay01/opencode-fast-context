@@ -1,6 +1,6 @@
 ## Purpose
 
-Define how the retrieval tool presents itself to the calling agent: what it claims to do, what it refuses to claim, where measurement limits are disclosed, and which known noise classes are penalized.
+Define how the retrieval tool presents itself to the calling agent: what it claims to do, what it refuses to claim, where measurement limits are disclosed, and what a negative result reports.
 
 ## ADDED Requirements
 
@@ -41,16 +41,34 @@ The tool description SHALL state the tool's limits: it cannot prove that somethi
 - WHEN a model considers calling the tool to establish whether a change was completed
 - THEN the description tells it to pair the result with a directory listing or `git status` rather than rely on the tool alone
 
-### Requirement: Design-export and entry-file penalties
+### Requirement: Provider prompt alignment
 
-Discovery SHALL down-weight non-source design exports (`.html` or `.css` under a design, design, or artifacts directory) and generic application entry files (`App.tsx`, `App.jsx`, `main.tsx`, `index.tsx` at a source root) when no query token matches the file name. The penalties SHALL be score multipliers, not exclusions.
+The Jev relevance prompts in `src/providers/systemone.ts` and `src/providers/types.ts` SHALL ask whether a candidate is relevant context for the query. They SHALL NOT ask whether the candidate answers the query.
 
-#### Scenario: Broad query over a React app
+#### Scenario: Jev scores a design document
 
-- WHEN a broad query ranks `src/App.tsx` with no query token in its file name
-- THEN its score is multiplied by the entry-file penalty and it ranks below a file whose name matches the query
+- WHEN a candidate is a design export that documents the behaviour the query is about
+- THEN the prompt asks whether it is relevant context, so a document can score well without being read as an answer
 
-#### Scenario: Query targets the entry file
+### Requirement: Searched scope on negative results
 
-- WHEN the query contains a token matching an entry file's name
-- THEN no entry-file penalty is applied
+A `no_match` result SHALL include the searched scope: the candidate count considered, the number of distinct files examined, and whether discovery was truncated by the deadline. The field SHALL also be present on `complete` results for a uniform shape.
+
+#### Scenario: Candidate pool has no passing match
+
+- WHEN ranking completes and no candidate reaches the match threshold
+- THEN the result status is `no_match` and the payload reports how many candidates and distinct files were examined, plus truncation state
+
+#### Scenario: Discovery hits the deadline
+
+- WHEN the elapsed budget stops discovery before the pool is exhausted
+- THEN the truncation flag is set so the caller can tell a bounded negative from a full negative
+
+### Requirement: No scoring rule from one session
+
+This change SHALL NOT alter discovery scoring in `src/engine/discover.ts`, and SHALL NOT add a file-type, entry-file, or top-N precision rule based on a single session's results. Relevance changes require stage traces and comparison cases where the affected file classes are the intended context.
+
+#### Scenario: Relevance work resumes
+
+- WHEN discovery candidates, Jev scores, and final selection are captured for representative queries
+- THEN any proposed scoring rule is evaluated against cases where HTML, design artifacts, and entry files are the intended context as well as cases where they are not
