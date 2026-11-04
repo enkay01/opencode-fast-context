@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+Locator contract update.
+
+- Tool description, schema descriptions, README opening, and invocation guidance now describe file and line retrieval, not question answering.
+- Results include a `searched` scope: candidate windows sent to scoring, distinct files among them, and whether discovery hit its deadline. `no_match` no longer implies global absence.
+- Jev relevance prompts ask whether a snippet is relevant context instead of whether it answers the query.
+- Added generated `docs/agent-contract.md` with drift checking, and a real OpenCode 2 runtime contract capture against a local fake transport.
+- No discovery scoring, selection threshold, or provider budget changes.
+
 ## 0.1.0
 
 First experimental release for OpenCode 2.
