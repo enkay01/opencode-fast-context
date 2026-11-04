@@ -37,8 +37,8 @@ test("finds a function by identifier and returns valid ranges with a digest", as
     assert.ok(first.ranges[0]!.start >= 1);
     assert.match(first.excerpt, /retryDelay/);
     assert.equal(result.provider.id, "none");
-    assert.ok(result.searched.candidates > 0);
-    assert.ok(result.searched.files > 0);
+    assert.equal(result.searched.candidates, 0, "no provider means no windows scored");
+    assert.equal(result.searched.files, 0);
     assert.equal(result.searched.truncated, false);
   } finally {
     await fixture.cleanup();

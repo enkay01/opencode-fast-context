@@ -2,7 +2,8 @@
   {
     "arm": "legacy",
     "task": "retry-backoff",
-    "elapsedMs": 523,
+    "split": "tuning",
+    "elapsedMs": 401,
     "status": "complete",
     "returned": [
       "src/retry.ts",
@@ -47,12 +48,13 @@
   {
     "arm": "legacy",
     "task": "opening-animation",
-    "elapsedMs": 584,
+    "split": "tuning",
+    "elapsedMs": 512,
     "status": "complete",
     "returned": [
       "designs/opening.html",
-      "src/retry.ts",
-      "src/App.tsx"
+      "src/App.tsx",
+      "src/retry.ts"
     ],
     "relevant": [
       "designs/opening.html",
@@ -69,24 +71,25 @@
     "ranked": [
       {
         "path": "designs/opening.html",
-        "decision": 0.4,
+        "decision": 0.41,
         "lexical": 18.136
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.02,
+        "lexical": 8.736
       },
       {
         "path": "src/retry.ts",
         "decision": 0.02,
         "lexical": 0
-      },
-      {
-        "path": "src/App.tsx",
-        "decision": 0.01,
-        "lexical": 8.736
       }
     ]
   },
   {
     "arm": "legacy",
     "task": "app-shell",
+    "split": "tuning",
     "elapsedMs": 15,
     "status": "no_match",
     "returned": [],
@@ -104,7 +107,8 @@
   {
     "arm": "legacy",
     "task": "retry-doc",
-    "elapsedMs": 748,
+    "split": "tuning",
+    "elapsedMs": 731,
     "status": "complete",
     "returned": [
       "docs/retry.md",
@@ -126,17 +130,17 @@
     "ranked": [
       {
         "path": "docs/retry.md",
-        "decision": 0.89,
+        "decision": 0.88,
         "lexical": 4.946
       },
       {
         "path": "src/retry.ts",
-        "decision": 0.87,
+        "decision": 0.88,
         "lexical": 0.68
       },
       {
         "path": "src/App.tsx",
-        "decision": 0.19,
+        "decision": 0.17,
         "lexical": 1.877
       },
       {
@@ -149,57 +153,13 @@
   {
     "arm": "legacy",
     "task": "retry-distractor",
-    "elapsedMs": 764,
+    "split": "tuning",
+    "elapsedMs": 748,
     "status": "complete",
     "returned": [
       "src/retry.ts",
       "src/App.tsx",
       "docs/retry.md",
-      "designs/opening.html"
-    ],
-    "relevant": [
-      "src/retry.ts"
-    ],
-    "precision": 0.25,
-    "recallAt5": 1,
-    "count": 4,
-    "searched": {
-      "candidates": 4,
-      "files": 4,
-      "truncated": false
-    },
-    "ranked": [
-      {
-        "path": "src/retry.ts",
-        "decision": 0.98,
-        "lexical": 13.718
-      },
-      {
-        "path": "src/App.tsx",
-        "decision": 0.6,
-        "lexical": 10.133
-      },
-      {
-        "path": "docs/retry.md",
-        "decision": 0.09,
-        "lexical": 2.802
-      },
-      {
-        "path": "designs/opening.html",
-        "decision": 0.01,
-        "lexical": 0
-      }
-    ]
-  },
-  {
-    "arm": "locator",
-    "task": "retry-backoff",
-    "elapsedMs": 780,
-    "status": "complete",
-    "returned": [
-      "src/retry.ts",
-      "docs/retry.md",
-      "src/App.tsx",
       "designs/opening.html"
     ],
     "relevant": [
@@ -217,11 +177,143 @@
       {
         "path": "src/retry.ts",
         "decision": 0.97,
+        "lexical": 13.718
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.63,
+        "lexical": 10.133
+      },
+      {
+        "path": "docs/retry.md",
+        "decision": 0.09,
+        "lexical": 2.802
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.01,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "legacy",
+    "task": "accept-opening-design",
+    "split": "acceptance",
+    "elapsedMs": 604,
+    "status": "complete",
+    "returned": [
+      "designs/opening.html",
+      "src/retry.ts",
+      "src/App.tsx"
+    ],
+    "relevant": [
+      "designs/opening.html"
+    ],
+    "precision": 0.3333333333333333,
+    "recallAt5": 1,
+    "count": 3,
+    "searched": {
+      "candidates": 3,
+      "files": 3,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "designs/opening.html",
+        "decision": 0.93,
+        "lexical": 7.457
+      },
+      {
+        "path": "src/retry.ts",
+        "decision": 0.21,
+        "lexical": 0
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.02,
+        "lexical": 4.164
+      }
+    ]
+  },
+  {
+    "arm": "legacy",
+    "task": "accept-retry-doc",
+    "split": "acceptance",
+    "elapsedMs": 710,
+    "status": "complete",
+    "returned": [
+      "src/retry.ts",
+      "docs/retry.md",
+      "src/App.tsx",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "docs/retry.md"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "src/retry.ts",
+        "decision": 0.97,
+        "lexical": 5.367
+      },
+      {
+        "path": "docs/retry.md",
+        "decision": 0.93,
+        "lexical": 6.545
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.03,
+        "lexical": 1.676
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.02,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "locator",
+    "task": "retry-backoff",
+    "split": "tuning",
+    "elapsedMs": 711,
+    "status": "complete",
+    "returned": [
+      "src/retry.ts",
+      "docs/retry.md",
+      "src/App.tsx",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "src/retry.ts"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "src/retry.ts",
+        "decision": 0.98,
         "lexical": 5.312
       },
       {
         "path": "docs/retry.md",
-        "decision": 0.78,
+        "decision": 0.73,
         "lexical": 4.035
       },
       {
@@ -239,7 +331,8 @@
   {
     "arm": "locator",
     "task": "opening-animation",
-    "elapsedMs": 608,
+    "split": "tuning",
+    "elapsedMs": 629,
     "status": "complete",
     "returned": [
       "designs/opening.html",
@@ -279,7 +372,8 @@
   {
     "arm": "locator",
     "task": "app-shell",
-    "elapsedMs": 16,
+    "split": "tuning",
+    "elapsedMs": 12,
     "status": "no_match",
     "returned": [],
     "relevant": [],
@@ -296,7 +390,8 @@
   {
     "arm": "locator",
     "task": "retry-doc",
-    "elapsedMs": 709,
+    "split": "tuning",
+    "elapsedMs": 733,
     "status": "complete",
     "returned": [
       "docs/retry.md",
@@ -323,12 +418,12 @@
       },
       {
         "path": "src/retry.ts",
-        "decision": 0.86,
+        "decision": 0.88,
         "lexical": 0.68
       },
       {
         "path": "src/App.tsx",
-        "decision": 0.56,
+        "decision": 0.57,
         "lexical": 1.877
       },
       {
@@ -341,7 +436,8 @@
   {
     "arm": "locator",
     "task": "retry-distractor",
-    "elapsedMs": 747,
+    "split": "tuning",
+    "elapsedMs": 752,
     "status": "complete",
     "returned": [
       "src/retry.ts",
@@ -363,7 +459,7 @@
     "ranked": [
       {
         "path": "src/retry.ts",
-        "decision": 0.98,
+        "decision": 0.97,
         "lexical": 13.718
       },
       {
@@ -373,12 +469,98 @@
       },
       {
         "path": "docs/retry.md",
-        "decision": 0.61,
+        "decision": 0.6,
         "lexical": 2.802
       },
       {
         "path": "designs/opening.html",
-        "decision": 0.01,
+        "decision": 0.02,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "locator",
+    "task": "accept-opening-design",
+    "split": "acceptance",
+    "elapsedMs": 557,
+    "status": "complete",
+    "returned": [
+      "designs/opening.html",
+      "src/retry.ts",
+      "src/App.tsx"
+    ],
+    "relevant": [
+      "designs/opening.html"
+    ],
+    "precision": 0.3333333333333333,
+    "recallAt5": 1,
+    "count": 3,
+    "searched": {
+      "candidates": 3,
+      "files": 3,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "designs/opening.html",
+        "decision": 0.97,
+        "lexical": 7.457
+      },
+      {
+        "path": "src/retry.ts",
+        "decision": 0.17,
+        "lexical": 0
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.07,
+        "lexical": 4.164
+      }
+    ]
+  },
+  {
+    "arm": "locator",
+    "task": "accept-retry-doc",
+    "split": "acceptance",
+    "elapsedMs": 682,
+    "status": "complete",
+    "returned": [
+      "docs/retry.md",
+      "src/retry.ts",
+      "src/App.tsx",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "docs/retry.md"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "docs/retry.md",
+        "decision": 0.97,
+        "lexical": 6.545
+      },
+      {
+        "path": "src/retry.ts",
+        "decision": 0.96,
+        "lexical": 5.367
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.14,
+        "lexical": 1.676
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.02,
         "lexical": 0
       }
     ]

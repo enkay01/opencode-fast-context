@@ -3,27 +3,59 @@
     {
       "id": "retry-backoff",
       "query": "where is exponential retry backoff computed",
-      "labels": ["src/retry.ts"]
+      "labels": [
+        "src/retry.ts"
+      ],
+      "split": "tuning"
     },
     {
       "id": "opening-animation",
       "query": "opening animation timeline easing",
-      "labels": ["designs/opening.html", "src/App.tsx"]
+      "labels": [
+        "designs/opening.html",
+        "src/App.tsx"
+      ],
+      "split": "tuning"
     },
     {
       "id": "app-shell",
       "query": "app shell providers composition",
-      "labels": ["src/App.tsx"]
+      "labels": [
+        "src/App.tsx"
+      ],
+      "split": "tuning"
     },
     {
       "id": "retry-doc",
       "query": "how is the retry policy documented",
-      "labels": ["docs/retry.md"]
+      "labels": [
+        "docs/retry.md"
+      ],
+      "split": "tuning"
     },
     {
       "id": "retry-distractor",
       "query": "retry policy maximum attempts",
-      "labels": ["src/retry.ts"]
+      "labels": [
+        "src/retry.ts"
+      ],
+      "split": "tuning"
+    },
+    {
+      "id": "accept-opening-design",
+      "split": "acceptance",
+      "query": "where is the opening animation timing described",
+      "labels": [
+        "designs/opening.html"
+      ]
+    },
+    {
+      "id": "accept-retry-doc",
+      "split": "acceptance",
+      "query": "retry documentation base delay and cap",
+      "labels": [
+        "docs/retry.md"
+      ]
     }
   ]
 }

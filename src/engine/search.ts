@@ -15,6 +15,8 @@ export interface SearchOptions {
   onStage?: (stage: string) => void;
   /** Attach the discovery pool and ranked decisions for benchmark instrumentation. */
   includeDiagnostics?: boolean;
+  /** Internal test seam for timeout/status fixtures. */
+  discoverImpl?: typeof discover;
 }
 
 interface RankedCandidate extends Candidate {
@@ -77,15 +79,14 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
 
   options.onStage?.("discovery");
   const discoveryStart = Date.now();
-  const discovery = await discover(options.root, query, limits, {
+  const discoverFn = options.discoverImpl ?? discover;
+  const discovery = await discoverFn(options.root, query, limits, {
     deadline,
     ...(options.signal ? { signal: options.signal } : {}),
   });
   const discoveryMs = Date.now() - discoveryStart;
   diagnostics.poolFiles = [...new Set(discovery.candidates.map((candidate) => candidate.path))].slice(0, 200);
   diagnostics.discoveryTimedOut = discovery.timedOut;
-  searched.candidates = discovery.candidates.length;
-  searched.files = new Set(discovery.candidates.map((candidate) => candidate.path)).size;
   searched.truncated = discovery.timedOut;
 
   if (options.signal?.aborted) {
@@ -153,6 +154,8 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
     });
     diagnostics.redactedCandidates = redactedCandidates;
     diagnostics.rejectedCandidates = rejectedCandidates;
+    searched.candidates = safe.length;
+    searched.files = new Set(safe.map(({ candidate }) => candidate.path)).size;
 
     if (safe.length === 0) {
       status = "fallback_required";
@@ -303,11 +306,14 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       decision: candidate.decisionScore,
       lexical: candidate.lexicalScore,
     }));
-    return result("no_match", [], {
+    const timeout = discovery.timedOut;
+    return result(timeout ? "partial" : "no_match", [], {
       candidateCount: discovery.candidates.length,
       timings: { discovery: discoveryMs, ranking: rankingMs, total: 0 },
       provider,
-      reason: `no candidate passed the relevance threshold (best score ${topDecision.toFixed(2)})`,
+      reason:
+        (timeout ? "discovery deadline expired; " : "") +
+        `no candidate passed the relevance threshold (best score ${topDecision.toFixed(2)})`,
     });
   }
 

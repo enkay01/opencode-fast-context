@@ -28,7 +28,7 @@
 - [x] 4.2 Rewrite the matching prompt in `src/providers/systemone.ts` line 125 to the same framing. — Matching prompt updated in `systemone.ts`.
 - [x] 4.3 Update prompt tests to the new wording and confirm no test asserts the "answers" phrasing. — Contract test rejects answer phrasing in prompts.
 - [x] 4.4 Label mixed code/design fixtures before prompt tuning; capture baseline/candidate stage traces and precision, Recall@5, counts, and latency. Include useful HTML/design/entry files not named by queries. — Fixed mixed code/document fixture and live legacy-versus-locator comparison in `bench/locator-compare.ts`; traces in `bench/locator/runs/`.
-- [x] 4.5 Verify useful-file recall on untouched acceptance paraphrases; use prior benchmark tasks only as regressions. Record mock checks and live evaluations separately. Discovery scoring and selection thresholds stay unchanged. — Both arms measured mean recall@5 0.80 and precision 0.28 on the synthetic fixture; discovery scoring and thresholds unchanged. This is not held-out evidence.
+- [x] 4.5 Verify useful-file recall on untouched acceptance paraphrases; use prior benchmark tasks only as regressions. Record mock checks and live evaluations separately. Discovery scoring and selection thresholds stay unchanged. — Both arms measured mean recall@5 0.80 and precision 0.28 on five tuning tasks, and recall@5 1.00 with precision 0.29 on two acceptance paraphrases; discovery scoring and thresholds unchanged. This is not held-out evidence.
 
 ## 5. Verify
 

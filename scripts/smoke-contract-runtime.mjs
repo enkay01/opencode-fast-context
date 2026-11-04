@@ -111,9 +111,12 @@ try {
   const serialized = JSON.stringify(suggestRequest);
   assert.ok(serialized.includes(TOOL_DESCRIPTION), "effective tool description missing from model request");
   assert.match(serialized, /fast_context_search/);
+  assert.match(serialized, /"required":\["query"\]/);
+  assert.match(serialized, /"additionalProperties":false/);
   assert.match(serialized, /"maxFiles"/);
   assert.match(serialized, /"minimum":1/);
   assert.match(serialized, /"maximum":20/);
+  assert.match(serialized, /ceiling/i);
   assert.equal(serialized.split(AUTO_INVOKE_GUIDANCE).length - 1, 1, "guidance should appear once");
 
   const off = await runOpenCode("off");

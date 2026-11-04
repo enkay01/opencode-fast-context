@@ -21,4 +21,4 @@ node scripts/smoke-runtime.mjs
 
 ## Prompt comparison
 
-`bench/locator-compare.ts` ran the legacy and locator Jev prompts against fixed labels in `bench/locator/fixtures`. Both arms returned mean precision 0.28 and mean recall@5 0.80 across five tasks. Raw traces are in `bench/locator/runs/results.json`. The fixture is synthetic and small; this is not held-out evidence and supports no general performance claim. No discovery scoring or selection threshold changed.
+`bench/locator-compare.ts` ran the legacy and locator Jev prompts against fixed labels in `bench/locator/fixtures`. The tuning split had five tasks and the acceptance split had two paraphrases added after the prompt choice. Legacy and locator both returned mean precision 0.28 and recall@5 0.80 on tuning, and mean precision 0.29 and recall@5 1.00 on acceptance. Raw traces are in `bench/locator/runs/results.json`. The fixture is synthetic and small; this is not held-out evidence and supports no general performance claim. No discovery scoring or selection threshold changed.

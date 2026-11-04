@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { searchRepository } from "../src/engine/search.ts";
 import type { DecisionProvider } from "../src/providers/types.ts";
+import type { DiscoveryResult } from "../src/engine/discover.ts";
 import { makeFixture } from "./fixture.ts";
 
 const REPO = {
@@ -100,6 +101,86 @@ test("low relevance judgments return no_match instead of weak results", async ()
     assert.equal(result.results.length, 0);
     assert.ok(result.searched.candidates > 0, "no_match reports what was searched");
     assert.match(result.reason ?? "", /threshold/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a timed-out discovery with scored candidates is partial, not no_match", async () => {
+  const fixture = await makeFixture(REPO);
+  try {
+    const candidate = {
+      id: "src/a.ts#1-3",
+      path: "src/a.ts",
+      ranges: [{ start: 1, end: 3 }],
+      excerpt: "retryDelay",
+      matchLines: [1],
+      lexicalScore: 1,
+    };
+    const discovery: DiscoveryResult = {
+      candidates: [candidate],
+      matchedFiles: 1,
+      fileCount: 1,
+      waves: 2,
+      timedOut: true,
+    };
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "retryDelay",
+      provider: stubProvider(() => 0.01),
+      discoverImpl: async () => discovery,
+    });
+    assert.equal(result.status, "partial");
+    assert.equal(result.searched.candidates, 1);
+    assert.equal(result.searched.truncated, true);
+    assert.match(result.reason ?? "", /deadline/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("searched counts only candidate windows sent to the provider", async () => {
+  const files: Record<string, string> = {};
+  for (let index = 0; index < 30; index += 1) files[`src/f${index}.ts`] = `export const retryDelay${index} = ${index}\n`;
+  const fixture = await makeFixture(files);
+  try {
+    let received = 0;
+    const provider: DecisionProvider = {
+      id: "jev",
+      model: "stub",
+      async score(_query, candidates) {
+        received = candidates.length;
+        return {
+          scores: Object.fromEntries(candidates.map((candidate) => [candidate.id, 0.9])),
+          usage: null,
+          model: "stub",
+          skipped: 0,
+        };
+      },
+    };
+    const discovery: DiscoveryResult = {
+      candidates: Object.keys(files).map((path, index) => ({
+        id: `${path}#1-1`,
+        path,
+        ranges: [{ start: 1, end: 1 }],
+        excerpt: `retryDelay${index}`,
+        matchLines: [1],
+        lexicalScore: 10 - index * 0.01,
+      })),
+      matchedFiles: 30,
+      fileCount: 30,
+      waves: 1,
+      timedOut: false,
+    };
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "retryDelay",
+      provider,
+      discoverImpl: async () => discovery,
+    });
+    assert.equal(received, 24);
+    assert.equal(result.searched.candidates, 24);
+    assert.equal(result.searched.files, 24);
   } finally {
     await fixture.cleanup();
   }

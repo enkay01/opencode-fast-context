@@ -1,4 +1,5 @@
 import { type Limits, type SearchResult } from "../types.ts";
+import { discover } from "./discover.ts";
 import type { DecisionProvider } from "../providers/types.ts";
 export interface SearchOptions {
     root: string;
@@ -11,5 +12,7 @@ export interface SearchOptions {
     onStage?: (stage: string) => void;
     /** Attach the discovery pool and ranked decisions for benchmark instrumentation. */
     includeDiagnostics?: boolean;
+    /** Internal test seam for timeout/status fixtures. */
+    discoverImpl?: typeof discover;
 }
 export declare function searchRepository(options: SearchOptions): Promise<SearchResult>;

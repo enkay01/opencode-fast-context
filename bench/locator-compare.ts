@@ -6,6 +6,7 @@ import type { SearchResult } from "../src/types.ts";
 
 interface Task {
   id: string;
+  split: "tuning" | "acceptance";
   query: string;
   labels: string[];
 }
@@ -50,6 +51,7 @@ for (const arm of arms) {
     rows.push({
       arm: arm.id,
       task: task.id,
+      split: task.split,
       elapsedMs,
       status: result.status,
       returned,
@@ -72,10 +74,10 @@ const lines = [
   "",
   "Live Jev comparison on `bench/locator/fixtures`; labels were fixed before running. This is a small synthetic fixture, not held-out evidence.",
   "",
-  "| Arm | Task | Status | ms | Relevant/Returned | Precision | Recall@5 |",
-  "| --- | --- | --- | ---: | ---: | ---: | ---: |",
+  "| Arm | Split | Task | Status | ms | Relevant/Returned | Precision | Recall@5 |",
+  "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
   ...rows.map((row) =>
-    `| ${row.arm} | ${row.task} | ${row.status} | ${row.elapsedMs} | ${(row.relevant as string[]).length}/${row.count} | ${Number(row.precision).toFixed(2)} | ${Number(row.recallAt5).toFixed(2)} |`,
+    `| ${row.arm} | ${row.split} | ${row.task} | ${row.status} | ${row.elapsedMs} | ${(row.relevant as string[]).length}/${row.count} | ${Number(row.precision).toFixed(2)} | ${Number(row.recallAt5).toFixed(2)} |`,
   ),
   "",
   "Raw candidate and score traces: `bench/locator/runs/results.json`.",
@@ -83,10 +85,12 @@ const lines = [
 ];
 
 for (const arm of arms) {
-  const armRows = rows.filter((row) => row.arm === arm.id);
-  const precision = armRows.reduce((sum, row) => sum + Number(row.precision), 0) / armRows.length;
-  const recall = armRows.reduce((sum, row) => sum + Number(row.recallAt5), 0) / armRows.length;
-  lines.push(`${arm.id}: mean precision ${precision.toFixed(2)}, mean recall@5 ${recall.toFixed(2)}`);
+  for (const split of ["tuning", "acceptance"]) {
+    const armRows = rows.filter((row) => row.arm === arm.id && row.split === split);
+    const precision = armRows.reduce((sum, row) => sum + Number(row.precision), 0) / armRows.length;
+    const recall = armRows.reduce((sum, row) => sum + Number(row.recallAt5), 0) / armRows.length;
+    lines.push(`${arm.id} ${split}: mean precision ${precision.toFixed(2)}, mean recall@5 ${recall.toFixed(2)}`);
+  }
 }
 
 await writeFile(resolve("bench", "locator", "runs", "results.md"), `${lines.join("\n")}\n`);
