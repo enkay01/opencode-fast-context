@@ -750,8 +750,9 @@ export async function readCandidateExcerpt(
   const absolute = join(root, candidate.path);
   let buffer: Buffer;
   try {
-    const realRoot = await realpath(root);
-    const realFile = await realpath(absolute);
+    // realpath returns backslashes on Windows, so normalize both sides before comparing.
+    const realRoot = toPosix(await realpath(root));
+    const realFile = toPosix(await realpath(absolute));
     const rootPrefix = realRoot.endsWith("/") ? realRoot : `${realRoot}/`;
     if (!realFile.startsWith(rootPrefix)) return null;
     buffer = await readFile(realFile);

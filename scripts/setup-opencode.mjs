@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PLUGIN_ID = "fast-context";
 const PACKAGE_NAME = "opencode-fast-context";
-const DEFAULT_PACKAGE = `file://${resolve(process.cwd())}`;
+const DEFAULT_PACKAGE = pathToFileURL(resolve(process.cwd())).href;
 
 function parseArgs(argv) {
   const args = {
@@ -328,8 +328,8 @@ export function writePlugins(text, entries) {
 
 async function verifyIdentity(target) {
   if (!target.startsWith("file://")) return;
-  const entry = new URL(target);
-  const modulePath = join(entry.pathname, "dist", "index.js");
+  const directory = fileURLToPath(target);
+  const modulePath = join(directory, "dist", "index.js");
   if (!existsSync(modulePath)) fail(`built plugin not found at ${modulePath}; run npm run build first`);
   const module = await import(pathToFileURL(modulePath).href);
   if (module.default?.id !== PLUGIN_ID) {
