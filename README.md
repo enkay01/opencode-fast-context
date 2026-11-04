@@ -31,31 +31,26 @@ It does not build an index, write to the repository, run a background process, o
 
 ## Install
 
-### From npm (after publication)
-
-```bash
-opencode plugin add opencode-fast-context@0.1.0
-opencode plugin list
-```
-
-### From a Git tag (pre-npm)
+### From GitHub (recommended)
 
 ```bash
 opencode plugin add github:enkay01/opencode-fast-context#v0.1.0
 opencode plugin list
 ```
 
+This installs the tagged release. npm publication is intentionally not used for V1.
+
 ### From a local checkout
 
 ```bash
-git clone https://github.com/enkay01/opencode-fast-context
+git clone --branch v0.1.0 https://github.com/enkay01/opencode-fast-context
 cd opencode-fast-context
 npm ci
 npm run verify:release
-npm run setup:opencode -- --scope project
+npm run setup:opencode -- --scope global
 ```
 
-`setup:opencode` adds the absolute checkout path to the project `opencode.jsonc`, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope global` for the user configuration.
+`setup:opencode` adds the absolute checkout path to the global OpenCode configuration, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope project` for a project-local install. Add `--allow-missing-credential` to install before the API key is provisioned; Fast Context returns `fallback_required` until the key is set.
 
 ### One-shot instruction for an agent
 
@@ -136,16 +131,10 @@ Intermediate grep output and provider exchanges stay out of the conversation.
 ## Remove
 
 ```bash
-npm run setup:opencode -- --remove --scope project
+npm run setup:opencode -- --remove --scope global
 ```
 
-or for a published install:
-
-```bash
-opencode plugin remove opencode-fast-context
-```
-
-Restart OpenCode after changing configuration.
+Use `--scope project` if it was installed locally. Restart OpenCode after changing configuration.
 
 ## Troubleshooting
 

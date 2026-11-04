@@ -11,12 +11,18 @@ const PACKAGE_NAME = "opencode-fast-context";
 const DEFAULT_PACKAGE = `file://${resolve(process.cwd())}`;
 
 function parseArgs(argv) {
-  const args = { scope: "project", package: DEFAULT_PACKAGE, remove: false };
+  const args = {
+    scope: "project",
+    package: DEFAULT_PACKAGE,
+    remove: false,
+    allowMissingCredential: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--remove") args.remove = true;
     else if (arg === "--scope") args.scope = argv[++index];
     else if (arg === "--package") args.package = argv[++index];
+    else if (arg === "--allow-missing-credential") args.allowMissingCredential = true;
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -27,7 +33,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: npm run setup:opencode -- [--scope project|global] [--package <spec>] [--remove]
+  console.log(`Usage: npm run setup:opencode -- [--scope project|global] [--package <spec>] [--remove] [--allow-missing-credential]
 
 Registers the Fast Context plugin in OpenCode 2 configuration.
 It never accepts, reads, prints, or writes TYPESAFE_API_KEY.
@@ -341,7 +347,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   checkPrerequisites();
 
-  if (!args.remove && !credentialPresent()) {
+  if (!args.remove && !args.allowMissingCredential && !credentialPresent()) {
     fail(
       "TYPESAFE_API_KEY is not present in this environment. Provision it through your secret manager " +
         "or shell, then rerun. The value is never read or printed by this script.",
@@ -427,7 +433,9 @@ async function main() {
 
   console.log(`${upgraded ? "Updated" : "Added"} ${target} in ${config.path}.`);
   console.log(`Plugin id: ${PLUGIN_ID}`);
-  console.log(`TYPESAFE_API_KEY: ${credentialPresent() ? "present" : "missing"}`);
+  console.log(
+    `TYPESAFE_API_KEY: ${credentialPresent() ? "present" : "missing (Fast Context will return fallback_required until it is set)"}`,
+  );
   console.log(`Restart OpenCode from the same environment.`);
   console.log(`Remove with: npm run setup:opencode -- --remove --scope ${args.scope}`);
 }

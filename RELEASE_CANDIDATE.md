@@ -5,7 +5,7 @@
 - Version: `0.1.0`
 - Supported runtime: OpenCode 2 (`>=2.2.0 <3`), tested with 2.2.5; Node 22.18+
 - Packed artifact: `opencode-fast-context-0.1.0.tgz`, 29 files, SHA-256 `d4d47e9da18c8cfa7e28e3f5382d2a3ec906bde5ecd8f0336a160c4ff2201a51`
-- Status: **release candidate, fixes applied; awaiting re-review. Not tagged, published, or installed.**
+- Status: **released on GitHub as `v0.1.0`. npm publication is out of scope by request. Installed in the global OpenCode config on 2026-11-04; the Jev key is not present, so the tool returns `fallback_required` until it is set.**
 
 ## Third re-review fix
 
@@ -31,7 +31,7 @@ Clean-clone verification was repeated in `/tmp/rereview/repo` (directory name `r
 | 1. Credential-like source reached tool content/metadata; fallback evidence unredacted | `src/engine/search.ts` applies `sanitizeForProvider` to final evidence, rejecting private-key blocks and returning redacted excerpts for both ranked and fallback results. Formatted content and metadata derive from that evidence. | `test/provider-boundary.test.ts`: “final tool content and metadata redact credential-like evidence” and “fallback evidence also redacts credential-like content” assert the `ghp_…` marker is absent from `JSON.stringify(result)` and `formatForModel(result)`. |
 | 2. Hostile `x-request-id` entered errors | `src/providers/systemone.ts` accepts only `^[A-Za-z0-9-]{1,64}$`; anything else is omitted. | `test/redact.test.ts`: hostile header with `ghp_…` yields exactly `HTTP 401`; a safe `req-test-123` is retained. |
 | 3. Setup searched text and could false-succeed | `scripts/setup-opencode.mjs` parses JSONC (comments, trailing commas), inspects actual `plugins` entries, rewrites only that array, re-parses the written file, asserts the entry exists (or is gone), then verifies plugin identity. | `test/setup.test.ts`: comments and unrelated `"fast-context"` values do not count as an entry; idempotent rerun; removal; project and global scopes. |
-| 4. No real OpenCode 2 runtime load; no protected publish workflow | `scripts/smoke-runtime.mjs` starts OpenCode 2.2.5 with a temporary HOME and local plugin path, loads `dist/index.js`, and makes no provider call. `.github/workflows/publish.yml` publishes only on a published release, under protected environment `npm-publish`, with `id-token: write`, tag/version equality check, and `npm publish --provenance --access public`. | `npm run verify:release` runs the runtime smoke; publish workflow is committed but has not executed. |
+| 4. No real OpenCode 2 runtime load | `scripts/smoke-runtime.mjs` starts OpenCode 2.2.5 with a temporary HOME and local plugin path, loads `dist/index.js`, and makes no provider call. | `npm run verify:release` runs the runtime smoke. |
 | 5. Secret-scan exceptions skipped whole lines; absolute-path check was macOS-only | Exceptions now remove only exact dummy values before matching, and the synthetic key block is removed only when it contains the known dummy body. Absolute-path detection covers `/Users/`, `/home/`, `/root/`, `/private/tmp/`, `/var/folders/`, Windows drive paths, and UNC prefixes. | `scripts/verify-release.mjs`; a second real credential on a line containing a dummy would still match. |
 | 6. Missing credential labelled `local ranking` | `src/tool.ts` prints `provider: not configured` for provider `none` with `fallback_required`; the footer no longer claims local results. | `test/provider-boundary.test.ts`: “a missing credential is not described as local ranking”. |
 
@@ -107,7 +107,7 @@ package.json
 | Safe provider payload | `src/providers/redact.ts`; `src/engine/search.ts`; `src/providers/systemone.ts`; redaction and boundary tests |
 | Fixed HTTPS endpoint | `src/config.ts` ignores `TYPESAFE_ENDPOINT`; test asserts the fixed URL |
 | Reproducible installation | `scripts/setup-opencode.mjs`; `test/setup.test.ts` (project, global, JSONC comments, idempotence, removal) |
-| Reviewed release | This document; protected `publish.yml`; independent re-review still required |
+| Reviewed release | CLEAN review at `04e5001`; GitHub tag `v0.1.0`; no npm workflow |
 | Docs and disclosure | `README.md`; `SECURITY.md`; `CHANGELOG.md`; `AGENTS.md`; benchmark limitation preserved |
 
 ## Outstanding gates

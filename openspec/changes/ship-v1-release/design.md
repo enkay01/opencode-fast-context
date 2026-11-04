@@ -81,7 +81,7 @@ The root `AGENTS.md` tells an assigned agent to run the repository command, stop
 
 SWE prepares the branch and a release candidate without publishing. Code Review Partner checks the implementation against every requirement and task in this change, including the packed artifact and a clean-clone OpenCode 2 smoke test. SWE fixes accepted findings. Publication and local installation happen only after the reviewer reports no unresolved release-blocking findings.
 
-Publish from protected GitHub Actions with npm trusted publishing and provenance. Tag the exact reviewed commit, install that exact version on the user's machine, run the smoke check, and report the installed version and plugin ID.
+Tag the exact reviewed commit and publish a GitHub release. npm publication is out of scope for V1 by request; install from the GitHub tag or local checkout, run the smoke check, and report the installed commit and plugin ID.
 
 ## Risks
 

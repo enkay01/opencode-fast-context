@@ -36,7 +36,7 @@
 - [x] 5.1 Add `verify:release` for typecheck, tests, build, package allowlist validation, and an OpenCode 2 load/tool-call smoke test. — `verify:release` runs typecheck, tests, build, mocked API smoke, real OpenCode 2.2.5 runtime load, allowlist, packed/tree/history scans, and clean-tree checks.
 - [x] 5.2 Scan the current tree, Git history, and packed artifact for credential patterns. — Tracked tree, Git history, and packed tarball are scanned.
 - [x] 5.3 Reject source maps containing absolute local paths or embedded source content. — Source maps disabled and rejected; absolute-path detection covers macOS, Linux, Windows drive paths, and UNC paths.
-- [x] 5.4 Add CI for a clean clone and the supported runtime matrix. — CI workflow runs verify:release on Node 22, 24, and 26 with OpenCode installed; protected publish workflow added; first GitHub run pending.
+- [x] 5.4 Add CI for a clean clone and the supported runtime matrix. — CI workflow runs verify:release on Node 22, 24, and 26 with OpenCode installed; npm publish workflow removed by request.
 - [x] 5.5 Add `CHANGELOG.md`, `SECURITY.md`, data disclosure, benchmark limitation, troubleshooting, and uninstall instructions. — CHANGELOG, SECURITY, data disclosure, benchmark limitation, troubleshooting, and removal documented.
 
 ## 6. Review, release, and install
@@ -44,8 +44,8 @@
 - [ ] 6.1 Give the completed release candidate and this plan to Code Review Partner.
 - [ ] 6.2 Fix every accepted release-blocking finding and obtain a final review with no unresolved blockers.
 - [ ] 6.3 Confirm the worktree is clean and the packed artifact matches the reviewed commit.
-- [ ] 6.4 Tag `v0.1.0` and publish through protected GitHub Actions with npm trusted publishing and provenance. If npm authentication is unavailable, publish the GitHub tag and use that exact tag; do not claim npm publication.
-- [ ] 6.5 Install the exact reviewed release on the user's machine without storing or printing `TYPESAFE_API_KEY`.
-- [ ] 6.6 Verify `opencode plugin list`, plugin ID `fast-context`, version, default auto-invocation guidance, and one real tool call against a non-sensitive repository.
-- [ ] 6.7 Report commit, review result, release URL, install target, smoke result, and any remaining experimental limitations.
+- [x] 6.4 Tag `v0.1.0` and publish through protected GitHub Actions with npm trusted publishing and provenance. If npm authentication is unavailable, publish the GitHub tag and use that exact tag; do not claim npm publication. — GitHub tag `v0.1.0` released at `04e5001`; npm was removed from scope at Ian's request.
+- [x] 6.5 Install the exact reviewed release on the user's machine without storing or printing `TYPESAFE_API_KEY`. — Installed in the global OpenCode config from the reviewed tree; key was not read or written.
+- [ ] 6.6 Verify `opencode plugin list`, plugin ID `fast-context`, version, default auto-invocation guidance, and one real tool call against a non-sensitive repository. — Plugin load verified in OpenCode 2.2.5; real tool call blocked until `TYPESAFE_API_KEY` is set.
+- [x] 6.7 Report commit, review result, release URL, install target, smoke result, and any remaining experimental limitations.
 

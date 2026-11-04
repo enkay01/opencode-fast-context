@@ -12,9 +12,6 @@
   "bugs": {
     "url": "https://github.com/enkay01/opencode-fast-context/issues"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
