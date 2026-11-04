@@ -155,73 +155,115 @@ export function isFastContextEntry(entry, target) {
   );
 }
 
-/** Find the `plugins` array bounds in the original text, ignoring comments and strings. */
-function findPluginsArray(text) {
-  let inString = false;
-  let escaped = false;
-  let lineComment = false;
-  let blockComment = false;
+function skipTrivia(text, index) {
+  let cursor = index;
+  while (cursor < text.length) {
+    if (/\s/.test(text[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    if (text[cursor] === "/" && text[cursor + 1] === "/") {
+      cursor = text.indexOf("\n", cursor);
+      if (cursor < 0) return text.length;
+      continue;
+    }
+    if (text[cursor] === "/" && text[cursor + 1] === "*") {
+      const close = text.indexOf("*/", cursor + 2);
+      if (close < 0) return text.length;
+      cursor = close + 2;
+      continue;
+    }
+    break;
+  }
+  return cursor;
+}
 
-  for (let index = 0; index < text.length; index += 1) {
+function readString(text, index) {
+  let cursor = index + 1;
+  let escaped = false;
+  let value = "";
+  while (cursor < text.length) {
+    const char = text[cursor];
+    if (escaped) {
+      value += char;
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (char === '"') {
+      return { value, end: cursor };
+    } else {
+      value += char;
+    }
+    cursor += 1;
+  }
+  return { value, end: cursor };
+}
+
+function scanArrayClose(text, open) {
+  let depth = 0;
+  let index = open;
+  while (index < text.length) {
     const char = text[index];
     const next = text[index + 1];
-    if (lineComment) {
-      if (char === "\n") lineComment = false;
-      continue;
-    }
-    if (blockComment) {
-      if (char === "*" && next === "/") {
-        blockComment = false;
-        index += 1;
-      }
-      continue;
-    }
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
     if (char === '"') {
-      if (text.startsWith('"plugins"', index)) {
-        let cursor = index + '"plugins"'.length;
-        while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1;
-        if (text[cursor] === ":") {
-          cursor += 1;
-          while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1;
-          if (text[cursor] === "[") {
-            const open = cursor;
-            let depth = 0;
-            let arrayString = false;
-            let arrayEscaped = false;
-            for (let scan = open; scan < text.length; scan += 1) {
-              const item = text[scan];
-              if (arrayString) {
-                if (arrayEscaped) arrayEscaped = false;
-                else if (item === "\\") arrayEscaped = true;
-                else if (item === '"') arrayString = false;
-                continue;
-              }
-              if (item === '"') arrayString = true;
-              else if (item === "[") depth += 1;
-              else if (item === "]") {
-                depth -= 1;
-                if (depth === 0) return { open, close: scan };
-              }
-            }
-          }
-        }
-      }
-      inString = true;
+      index = readString(text, index).end + 1;
       continue;
     }
     if (char === "/" && next === "/") {
-      lineComment = true;
-      index += 1;
-    } else if (char === "/" && next === "*") {
-      blockComment = true;
-      index += 1;
+      const line = text.indexOf("\n", index);
+      index = line < 0 ? text.length : line + 1;
+      continue;
     }
+    if (char === "/" && next === "*") {
+      const close = text.indexOf("*/", index + 2);
+      index = close < 0 ? text.length : close + 2;
+      continue;
+    }
+    if (char === "[") depth += 1;
+    else if (char === "]") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+    index += 1;
+  }
+  return -1;
+}
+
+/** Find the top-level `plugins` array, ignoring nested objects and comments. */
+export function findPluginsArray(text) {
+  let index = 0;
+  let depth = 0;
+  while (index < text.length) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === '"') {
+      const token = readString(text, index);
+      if (depth === 1 && token.value === "plugins") {
+        let cursor = skipTrivia(text, token.end + 1);
+        if (text[cursor] === ":") {
+          cursor = skipTrivia(text, cursor + 1);
+          if (text[cursor] === "[") {
+            const close = scanArrayClose(text, cursor);
+            if (close >= 0) return { open: cursor, close };
+          }
+        }
+      }
+      index = token.end + 1;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      const line = text.indexOf("\n", index);
+      index = line < 0 ? text.length : line + 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const close = text.indexOf("*/", index + 2);
+      index = close < 0 ? text.length : close + 2;
+      continue;
+    }
+    if (char === "{" || char === "[") depth += 1;
+    else if (char === "}" || char === "]") depth -= 1;
+    index += 1;
   }
   return null;
 }
@@ -290,8 +332,13 @@ async function main() {
       return;
     }
     const remaining = entries.filter((entry) => !isFastContextEntry(entry, target));
+    const candidateText = writePlugins(existingText, remaining);
+    const candidate = parseConfig(candidateText);
+    if (pluginEntries(candidate).some((entry) => isFastContextEntry(entry, target))) {
+      fail("removal candidate still contains the plugin; refusing to write");
+    }
     await mkdir(dirname(config.path), { recursive: true });
-    await atomicWrite(config.path, writePlugins(existingText, remaining));
+    await atomicWrite(config.path, candidateText);
     const after = parseConfig(await readFile(config.path, "utf8"));
     if (pluginEntries(after).some((entry) => isFastContextEntry(entry, target))) {
       fail("removal did not stick; configuration still contains the plugin");
@@ -309,6 +356,10 @@ async function main() {
   }
 
   const nextText = writePlugins(existingText, [...entries, target]);
+  const candidate = parseConfig(nextText);
+  if (!pluginEntries(candidate).some((entry) => isFastContextEntry(entry, target))) {
+    fail("setup candidate is valid JSONC but does not contain the plugin; refusing to write");
+  }
   await mkdir(dirname(config.path), { recursive: true });
   await atomicWrite(config.path, nextText);
 

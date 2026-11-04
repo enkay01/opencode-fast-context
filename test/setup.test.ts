@@ -118,3 +118,27 @@ test("JSONC stripping respects comments inside strings", async () => {
   assert.equal(parsed.url, "https://example.invalid/a//b");
   assert.equal(parsed.n, 1);
 });
+
+test("writePlugins edits only the top-level plugins array", async () => {
+  const setup = await import("../scripts/setup-opencode.mjs");
+  const text = '{"other":{"plugins":["nested"]},"plugins":["real"]}';
+  const output = setup.writePlugins(text, ["real", target]);
+  const parsed = setup.parseConfig(output);
+  assert.deepEqual(parsed.other.plugins, ["nested"]);
+  assert.deepEqual(parsed.plugins, ["real", target]);
+});
+
+test("setup handles a closing bracket inside a plugins comment", async () => {
+  const setup = await import("../scripts/setup-opencode.mjs");
+  const text = [
+    "{",
+    '  "plugins": [',
+    '    "existing" // ] this bracket is not the end',
+    "  ]",
+    "}",
+    "",
+  ].join("\n");
+  const output = setup.writePlugins(text, ["existing", target]);
+  const parsed = setup.parseConfig(output);
+  assert.deepEqual(parsed.plugins, ["existing", target]);
+});
