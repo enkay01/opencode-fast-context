@@ -55,6 +55,15 @@ export interface RetrievalDiagnostics {
   rejectedCandidates?: number;
 }
 
+export interface SearchedScope {
+  /** Candidate windows passed into relevance scoring. */
+  candidates: number;
+  /** Distinct files among those candidates. */
+  files: number;
+  /** Discovery stopped because its deadline expired. */
+  truncated: boolean;
+}
+
 export interface SearchResult {
   version: 1;
   query: string;
@@ -62,6 +71,7 @@ export interface SearchResult {
   results: Evidence[];
   truncated: boolean;
   candidateCount: number;
+  searched: SearchedScope;
   provider: ProviderInfo;
   timings: Timings;
   reason?: string;

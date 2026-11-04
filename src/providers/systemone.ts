@@ -1,7 +1,9 @@
 import {
   ProviderError,
   RELEVANCE_CRITERIA,
+  RELEVANCE_CRITERIA_LEGACY,
   RELEVANCE_INSTRUCTIONS,
+  RELEVANCE_INSTRUCTIONS_LEGACY,
   buildState,
   mapWithConcurrency,
   type ChooseOption,
@@ -28,6 +30,10 @@ async function callSystemOne(
   timeoutMs: number,
   signal?: AbortSignal,
   fetchImpl: typeof fetch = fetch,
+  prompt: { instructions: string; criteria: { true: string; false: string } } = {
+    instructions: RELEVANCE_INSTRUCTIONS,
+    criteria: RELEVANCE_CRITERIA,
+  },
 ): Promise<{ noul: number; model: string; usage: { input: number; output: number } | null }> {
   const body = {
     model,
@@ -35,8 +41,8 @@ async function callSystemOne(
     questions: {
       relevant: {
         type: "noul",
-        instructions: RELEVANCE_INSTRUCTIONS,
-        criteria: RELEVANCE_CRITERIA,
+        instructions: prompt.instructions,
+        criteria: prompt.criteria,
       },
     },
   };
@@ -122,7 +128,7 @@ async function callChoice(
       directory: {
         type: "choice",
         instructions:
-          "Which directory most likely contains the code that answers the developer's question? " +
+          "Which directory most likely contains files relevant to the developer's query? " +
           "Choose from the supplied directories only.",
         criteria: Object.fromEntries(options.map((option) => [option.id, option.label])),
       },
@@ -182,6 +188,7 @@ const fetchImplRef: { current: typeof fetch } = { current: fetch };
 
 async function scoreCandidates(
   providerId: "jev" | "clef",
+  prompt: { instructions: string; criteria: { true: string; false: string } },
   model: string,
   endpoint: (candidateIndex: number) => string,
   headers: Record<string, string>,
@@ -214,6 +221,7 @@ async function scoreCandidates(
         Math.min(remaining, 8000),
         options.signal,
         fetchImplRef.current,
+        prompt,
       );
       scores[candidate.id] = result.noul;
       actualModel = result.model;
@@ -249,6 +257,8 @@ export interface JevConfig {
   baseUrl?: string;
   /** Internal test seam for mocked transports. */
   fetchImpl?: typeof fetch;
+  /** Internal comparison seam for the locator-contract prompt evaluation. */
+  promptVariant?: "legacy" | "locator";
 }
 
 export function createJevProvider(config: JevConfig): DecisionProvider {
@@ -265,6 +275,9 @@ export function createJevProvider(config: JevConfig): DecisionProvider {
       fetchImplRef.current = config.fetchImpl ?? fetch;
       return scoreCandidates(
         "jev",
+        config.promptVariant === "legacy"
+          ? { instructions: RELEVANCE_INSTRUCTIONS_LEGACY, criteria: RELEVANCE_CRITERIA_LEGACY }
+          : { instructions: RELEVANCE_INSTRUCTIONS, criteria: RELEVANCE_CRITERIA },
         model,
         () => `${baseUrl}/v1/systemone`,
         { authorization: `Bearer ${config.apiKey}` },
@@ -299,6 +312,7 @@ export function createClefProvider(config: ClefConfig): DecisionProvider {
     score(query, candidates, options) {
       return scoreCandidates(
         "clef",
+        { instructions: RELEVANCE_INSTRUCTIONS, criteria: RELEVANCE_CRITERIA },
         selector,
         () => endpoint,
         { authorization: `Bearer ${config.apiToken}` },

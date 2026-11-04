@@ -1,24 +1,24 @@
 # OpenCode Fast Context
 
-Experimental code retrieval for [OpenCode 2](https://opencode.ai). It finds the files and line ranges that answer a repository question with bounded local search, ranks candidates with Jev, and returns compact citations.
-
-**V1 is an experimental release.** It is faster than stock agentic search in our development measurements, but quality parity is not established. Keep ordinary search available and evaluate it on your own repository. See [BENCHMARK.md](BENCHMARK.md).
+Fast Context pulls relevant repository files and excerpts into your OpenCode agent's context. It uses bounded local search, ranks candidates with Jev, and returns paths with line ranges for the caller to read. The tool locates material; it does not answer the question itself.
 
 ## What it does
 
 A model calls:
 
 ```json
-{ "query": "Where is the retry backoff computed?", "maxFiles": 5 }
+{ "query": "retry backoff attempt jitter", "maxFiles": 5 }
 ```
 
 The plugin:
 
-1. tokenizes the question, stems code terms, expands common synonyms, and groups concepts;
+1. tokenizes the query, stems code terms, expands common synonyms, and groups concepts;
 2. searches locally with ripgrep, weighting rare terms and down-weighting docs, translations, and tests;
 3. keeps one to three promising ranges per file;
 4. sends up to 24 candidate snippets to Jev for relevance scoring, one question per file;
 5. re-reads selected evidence, validates line ranges and digests, and returns `path:line` citations.
+
+The result describes what was searched: candidate windows passed into relevance scoring, distinct files among them, and whether discovery hit its deadline. `complete` means retrieval completed. `no_match` means this search selected no relevant evidence; it is not proof that the project lacks the material. For current status or a missing artifact, the caller should also inspect the relevant directories and version-control state. Encrypted artifact contents need a suitable reader.
 
 It does not build an index, write to the repository, run a background process, or intercept built-in search tools.
 
@@ -122,8 +122,8 @@ Redaction is defence in depth, not a guarantee that arbitrary source contains no
 
 The tool returns one of:
 
-- `complete`: verified citations with short excerpts;
-- `no_match`: no candidate passed the relevance threshold;
+- `complete`: retrieval completed with checked citations and short excerpts;
+- `no_match`: no relevant evidence was selected in the searched scope;
 - `fallback_required`: Jev is unavailable or misconfigured; continue with ordinary search.
 
 Intermediate grep output and provider exchanges stay out of the conversation.
@@ -142,12 +142,12 @@ Use `--scope project` if it was installed locally. Restart OpenCode after changi
 - **Key works in a terminal but not the app**: the `opencode` shell wrapper only affects processes launched from that shell. The background service and a Dock-launched app do not inherit it. Restart the service from the wrapped shell, or launch OpenCode from that terminal.
 - **`TYPESAFE_API_KEY is not set`**: export the key in the environment that launches OpenCode. Do not add it to configuration.
 - **Frequent `fallback_required`**: check provider status and the configured model. Ordinary search is unaffected.
-- **`no_match` on a real question**: the candidate pool did not contain a passing match. Try more specific identifiers.
+- **`no_match` on a real target**: the searched candidate pool did not contain a passing match. Try more specific identifiers or inspect the relevant directories.
 - **No guidance added**: check that `autoInvoke` is not `"off"` and that your OpenCode version supports session context hooks.
 
 ## Benchmark
 
-Development measurements on a small corpus showed about 89% lower median latency than stock OpenCode with DeepSeek on six tuning tasks, and 73% lower on four fresh validation tasks. On those validation tasks, recall@5 was 0.50 against 1.00 for stock search. The difference is development evidence with one run per task, not a quality-parity claim. Method, limitations, and raw figures are in [BENCHMARK.md](BENCHMARK.md).
+Development measurements on a small corpus: median latency was about 89% lower than stock OpenCode with DeepSeek on six tuning tasks (4.8s versus 44.2s), and 73% lower on four validation tasks (5.1s versus 18.6s). Recall@5 on the validation tasks was 0.50 against 1.00 for stock search. Each figure is one run per task on that corpus. Method, sample sizes, and limits are in [BENCHMARK.md](BENCHMARK.md).
 
 ## Development
 
@@ -155,11 +155,11 @@ Development measurements on a small corpus showed about 89% lower median latency
 npm test                  # unit and integration tests
 npm run test:corpus       # pinned corpus check (requires bench/repos)
 npm run typecheck
-npm run verify:release    # typecheck, tests, build, API smoke, package and secret checks
+npm run verify:release    # typecheck, tests, build, API and runtime contract smoke, package and secret checks
 npm run build
 ```
 
-Release verification does not publish, tag, or install anything. The benchmark requires local pinned checkouts; see [BENCHMARK.md](BENCHMARK.md).
+Release verification does not publish, tag, or install anything. The generated agent contract is in [docs/agent-contract.md](docs/agent-contract.md); `npm run contract:check` detects drift. The benchmark requires local pinned checkouts; see [BENCHMARK.md](BENCHMARK.md).
 
 ## License
 

@@ -1,10 +1,12 @@
 export type AutoInvoke = "suggest" | "off";
 
 export const AUTO_INVOKE_GUIDANCE =
-  "For repository questions that require locating behavior across unknown files, call " +
-  "`fast_context_search` before broad iterative search. Do not call it when the user supplied the file, " +
-  "for a direct known-file read, or after it has already answered the question. If it returns `no_match` " +
-  "or `fallback_required`, continue with ordinary search.";
+  "For repository tasks that need locating relevant files across unknown directories, call " +
+  "`fast_context_search` before broad iterative search. Use a focused query with known domain names, " +
+  "symbols, or behavior; name the target file only if you already know it. Do not call it when you have " +
+  "supplied the file or need a direct known-file read. If it returns `no_match` or `fallback_required`, " +
+  "continue with ordinary search. For current status or a missing artifact, also inspect the relevant " +
+  "directories and version-control state.";
 
 export function normalizeAutoInvoke(value: unknown): AutoInvoke {
   return value === "off" ? "off" : "suggest";

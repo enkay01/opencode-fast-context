@@ -85,6 +85,7 @@ step("typecheck", () => run("npm", ["run", "-s", "typecheck"]));
 step("tests", () => run("npm", ["test"]));
 step("build", () => run("npm", ["run", "-s", "build"]));
 step("OpenCode 2 API smoke", () => run("node", ["scripts/smoke-opencode.mjs"]));
+step("OpenCode 2 runtime contract capture", () => run("node", ["scripts/smoke-contract-runtime.mjs"]));
 step("OpenCode 2 runtime load smoke", () => run("node", ["scripts/smoke-runtime.mjs"]));
 
 const packJson = JSON.parse(

@@ -58,6 +58,8 @@ test("provider failure returns fallback_required with lexical evidence and a rea
     assert.equal(result.status, "fallback_required");
     assert.match(result.reason ?? "", /503/);
     assert.ok(result.results.length > 0, "keeps lexical evidence for the caller");
+    assert.ok(result.searched.candidates > 0, "scope survives a later provider failure");
+    assert.ok(result.searched.files > 0);
   } finally {
     await fixture.cleanup();
   }
@@ -80,6 +82,7 @@ test("a provider that returns no scores does not crash the search", async () => 
     });
     assert.equal(result.status, "partial");
     assert.ok(result.results.length > 0);
+    assert.ok(result.searched.candidates > 0);
   } finally {
     await fixture.cleanup();
   }
@@ -95,6 +98,7 @@ test("low relevance judgments return no_match instead of weak results", async ()
     });
     assert.equal(result.status, "no_match");
     assert.equal(result.results.length, 0);
+    assert.ok(result.searched.candidates > 0, "no_match reports what was searched");
     assert.match(result.reason ?? "", /threshold/);
   } finally {
     await fixture.cleanup();

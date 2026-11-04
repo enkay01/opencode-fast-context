@@ -1,13 +1,16 @@
-import { ProviderError, RELEVANCE_CRITERIA, RELEVANCE_INSTRUCTIONS, buildState, mapWithConcurrency, } from "./types.js";
-async function callSystemOne(providerId, url, headers, model, query, candidate, timeoutMs, signal, fetchImpl = fetch) {
+import { ProviderError, RELEVANCE_CRITERIA, RELEVANCE_CRITERIA_LEGACY, RELEVANCE_INSTRUCTIONS, RELEVANCE_INSTRUCTIONS_LEGACY, buildState, mapWithConcurrency, } from "./types.js";
+async function callSystemOne(providerId, url, headers, model, query, candidate, timeoutMs, signal, fetchImpl = fetch, prompt = {
+    instructions: RELEVANCE_INSTRUCTIONS,
+    criteria: RELEVANCE_CRITERIA,
+}) {
     const body = {
         model,
         state: buildState(query, candidate),
         questions: {
             relevant: {
                 type: "noul",
-                instructions: RELEVANCE_INSTRUCTIONS,
-                criteria: RELEVANCE_CRITERIA,
+                instructions: prompt.instructions,
+                criteria: prompt.criteria,
             },
         },
     };
@@ -71,7 +74,7 @@ async function callChoice(providerId, url, headers, model, query, options, timeo
         questions: {
             directory: {
                 type: "choice",
-                instructions: "Which directory most likely contains the code that answers the developer's question? " +
+                instructions: "Which directory most likely contains files relevant to the developer's query? " +
                     "Choose from the supplied directories only.",
                 criteria: Object.fromEntries(options.map((option) => [option.id, option.label])),
             },
@@ -118,7 +121,7 @@ async function callChoice(providerId, url, headers, model, query, options, timeo
     return { choice, probabilities, usage, model: payload.model ?? model };
 }
 const fetchImplRef = { current: fetch };
-async function scoreCandidates(providerId, model, endpoint, headers, query, candidates, options) {
+async function scoreCandidates(providerId, prompt, model, endpoint, headers, query, candidates, options) {
     const scores = {};
     let usage = null;
     let usageSeen = false;
@@ -133,7 +136,7 @@ async function scoreCandidates(providerId, model, endpoint, headers, query, cand
         }
         const remaining = options.deadline - Date.now();
         try {
-            const result = await callSystemOne(providerId, endpoint(index), headers, model, query, candidate, Math.min(remaining, 8000), options.signal, fetchImplRef.current);
+            const result = await callSystemOne(providerId, endpoint(index), headers, model, query, candidate, Math.min(remaining, 8000), options.signal, fetchImplRef.current, prompt);
             scores[candidate.id] = result.noul;
             actualModel = result.model;
             if (result.usage) {
@@ -172,7 +175,9 @@ export function createJevProvider(config) {
         },
         score(query, candidates, options) {
             fetchImplRef.current = config.fetchImpl ?? fetch;
-            return scoreCandidates("jev", model, () => `${baseUrl}/v1/systemone`, { authorization: `Bearer ${config.apiKey}` }, query, candidates, options);
+            return scoreCandidates("jev", config.promptVariant === "legacy"
+                ? { instructions: RELEVANCE_INSTRUCTIONS_LEGACY, criteria: RELEVANCE_CRITERIA_LEGACY }
+                : { instructions: RELEVANCE_INSTRUCTIONS, criteria: RELEVANCE_CRITERIA }, model, () => `${baseUrl}/v1/systemone`, { authorization: `Bearer ${config.apiKey}` }, query, candidates, options);
         },
     };
 }
@@ -190,7 +195,7 @@ export function createClefProvider(config) {
             return callChoice("clef", endpoint, { authorization: `Bearer ${config.apiToken}` }, selector, query, options, Math.min(opts.deadline - Date.now(), 8000), opts.signal);
         },
         score(query, candidates, options) {
-            return scoreCandidates("clef", selector, () => endpoint, { authorization: `Bearer ${config.apiToken}` }, query, candidates, options);
+            return scoreCandidates("clef", { instructions: RELEVANCE_INSTRUCTIONS, criteria: RELEVANCE_CRITERIA }, selector, () => endpoint, { authorization: `Bearer ${config.apiToken}` }, query, candidates, options);
         },
     };
 }

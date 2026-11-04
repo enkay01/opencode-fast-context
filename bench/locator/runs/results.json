@@ -1,0 +1,386 @@
+[
+  {
+    "arm": "legacy",
+    "task": "retry-backoff",
+    "elapsedMs": 523,
+    "status": "complete",
+    "returned": [
+      "src/retry.ts",
+      "docs/retry.md",
+      "src/App.tsx",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "src/retry.ts"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "src/retry.ts",
+        "decision": 0.97,
+        "lexical": 5.312
+      },
+      {
+        "path": "docs/retry.md",
+        "decision": 0.21,
+        "lexical": 4.035
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.03,
+        "lexical": 1.751
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.01,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "legacy",
+    "task": "opening-animation",
+    "elapsedMs": 584,
+    "status": "complete",
+    "returned": [
+      "designs/opening.html",
+      "src/retry.ts",
+      "src/App.tsx"
+    ],
+    "relevant": [
+      "designs/opening.html",
+      "src/App.tsx"
+    ],
+    "precision": 0.6666666666666666,
+    "recallAt5": 1,
+    "count": 3,
+    "searched": {
+      "candidates": 3,
+      "files": 3,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "designs/opening.html",
+        "decision": 0.4,
+        "lexical": 18.136
+      },
+      {
+        "path": "src/retry.ts",
+        "decision": 0.02,
+        "lexical": 0
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.01,
+        "lexical": 8.736
+      }
+    ]
+  },
+  {
+    "arm": "legacy",
+    "task": "app-shell",
+    "elapsedMs": 15,
+    "status": "no_match",
+    "returned": [],
+    "relevant": [],
+    "precision": 0,
+    "recallAt5": 0,
+    "count": 0,
+    "searched": {
+      "candidates": 0,
+      "files": 0,
+      "truncated": false
+    },
+    "ranked": []
+  },
+  {
+    "arm": "legacy",
+    "task": "retry-doc",
+    "elapsedMs": 748,
+    "status": "complete",
+    "returned": [
+      "docs/retry.md",
+      "src/retry.ts",
+      "src/App.tsx",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "docs/retry.md"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "docs/retry.md",
+        "decision": 0.89,
+        "lexical": 4.946
+      },
+      {
+        "path": "src/retry.ts",
+        "decision": 0.87,
+        "lexical": 0.68
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.19,
+        "lexical": 1.877
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.01,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "legacy",
+    "task": "retry-distractor",
+    "elapsedMs": 764,
+    "status": "complete",
+    "returned": [
+      "src/retry.ts",
+      "src/App.tsx",
+      "docs/retry.md",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "src/retry.ts"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "src/retry.ts",
+        "decision": 0.98,
+        "lexical": 13.718
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.6,
+        "lexical": 10.133
+      },
+      {
+        "path": "docs/retry.md",
+        "decision": 0.09,
+        "lexical": 2.802
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.01,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "locator",
+    "task": "retry-backoff",
+    "elapsedMs": 780,
+    "status": "complete",
+    "returned": [
+      "src/retry.ts",
+      "docs/retry.md",
+      "src/App.tsx",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "src/retry.ts"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "src/retry.ts",
+        "decision": 0.97,
+        "lexical": 5.312
+      },
+      {
+        "path": "docs/retry.md",
+        "decision": 0.78,
+        "lexical": 4.035
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.19,
+        "lexical": 1.751
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.01,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "locator",
+    "task": "opening-animation",
+    "elapsedMs": 608,
+    "status": "complete",
+    "returned": [
+      "designs/opening.html",
+      "src/App.tsx",
+      "src/retry.ts"
+    ],
+    "relevant": [
+      "designs/opening.html",
+      "src/App.tsx"
+    ],
+    "precision": 0.6666666666666666,
+    "recallAt5": 1,
+    "count": 3,
+    "searched": {
+      "candidates": 3,
+      "files": 3,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "designs/opening.html",
+        "decision": 0.61,
+        "lexical": 18.136
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.03,
+        "lexical": 8.736
+      },
+      {
+        "path": "src/retry.ts",
+        "decision": 0.03,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "locator",
+    "task": "app-shell",
+    "elapsedMs": 16,
+    "status": "no_match",
+    "returned": [],
+    "relevant": [],
+    "precision": 0,
+    "recallAt5": 0,
+    "count": 0,
+    "searched": {
+      "candidates": 0,
+      "files": 0,
+      "truncated": false
+    },
+    "ranked": []
+  },
+  {
+    "arm": "locator",
+    "task": "retry-doc",
+    "elapsedMs": 709,
+    "status": "complete",
+    "returned": [
+      "docs/retry.md",
+      "src/retry.ts",
+      "src/App.tsx",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "docs/retry.md"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "docs/retry.md",
+        "decision": 0.96,
+        "lexical": 4.946
+      },
+      {
+        "path": "src/retry.ts",
+        "decision": 0.86,
+        "lexical": 0.68
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.56,
+        "lexical": 1.877
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.01,
+        "lexical": 0
+      }
+    ]
+  },
+  {
+    "arm": "locator",
+    "task": "retry-distractor",
+    "elapsedMs": 747,
+    "status": "complete",
+    "returned": [
+      "src/retry.ts",
+      "src/App.tsx",
+      "docs/retry.md",
+      "designs/opening.html"
+    ],
+    "relevant": [
+      "src/retry.ts"
+    ],
+    "precision": 0.25,
+    "recallAt5": 1,
+    "count": 4,
+    "searched": {
+      "candidates": 4,
+      "files": 4,
+      "truncated": false
+    },
+    "ranked": [
+      {
+        "path": "src/retry.ts",
+        "decision": 0.98,
+        "lexical": 13.718
+      },
+      {
+        "path": "src/App.tsx",
+        "decision": 0.83,
+        "lexical": 10.133
+      },
+      {
+        "path": "docs/retry.md",
+        "decision": 0.61,
+        "lexical": 2.802
+      },
+      {
+        "path": "designs/opening.html",
+        "decision": 0.01,
+        "lexical": 0
+      }
+    ]
+  }
+]

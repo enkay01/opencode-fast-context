@@ -21,6 +21,7 @@ export async function searchRepository(options) {
         redactedCandidates: 0,
         rejectedCandidates: 0,
     };
+    const searched = { candidates: 0, files: 0, truncated: false };
     const providerInfo = {
         id: options.provider?.id ?? "none",
         model: options.provider?.model ?? null,
@@ -35,6 +36,7 @@ export async function searchRepository(options) {
             results: evidence,
             truncated: extra.truncated ?? false,
             candidateCount: extra.candidateCount ?? 0,
+            searched: extra.searched ?? searched,
             provider: extra.provider ?? providerInfo,
             timings: { discovery: extra.timings?.discovery ?? 0, ranking: extra.timings?.ranking ?? 0, total },
             ...(extra.reason ? { reason: extra.reason } : {}),
@@ -56,6 +58,9 @@ export async function searchRepository(options) {
     const discoveryMs = Date.now() - discoveryStart;
     diagnostics.poolFiles = [...new Set(discovery.candidates.map((candidate) => candidate.path))].slice(0, 200);
     diagnostics.discoveryTimedOut = discovery.timedOut;
+    searched.candidates = discovery.candidates.length;
+    searched.files = new Set(discovery.candidates.map((candidate) => candidate.path)).size;
+    searched.truncated = discovery.timedOut;
     if (options.signal?.aborted) {
         return result("cancelled", [], { candidateCount: discovery.candidates.length, timings: { discovery: discoveryMs, ranking: 0, total: 0 } });
     }

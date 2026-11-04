@@ -1,0 +1,29 @@
+{
+  "tasks": [
+    {
+      "id": "retry-backoff",
+      "query": "where is exponential retry backoff computed",
+      "labels": ["src/retry.ts"]
+    },
+    {
+      "id": "opening-animation",
+      "query": "opening animation timeline easing",
+      "labels": ["designs/opening.html", "src/App.tsx"]
+    },
+    {
+      "id": "app-shell",
+      "query": "app shell providers composition",
+      "labels": ["src/App.tsx"]
+    },
+    {
+      "id": "retry-doc",
+      "query": "how is the retry policy documented",
+      "labels": ["docs/retry.md"]
+    },
+    {
+      "id": "retry-distractor",
+      "query": "retry policy maximum attempts",
+      "labels": ["src/retry.ts"]
+    }
+  ]
+}

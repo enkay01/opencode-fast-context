@@ -37,6 +37,9 @@ test("finds a function by identifier and returns valid ranges with a digest", as
     assert.ok(first.ranges[0]!.start >= 1);
     assert.match(first.excerpt, /retryDelay/);
     assert.equal(result.provider.id, "none");
+    assert.ok(result.searched.candidates > 0);
+    assert.ok(result.searched.files > 0);
+    assert.equal(result.searched.truncated, false);
   } finally {
     await fixture.cleanup();
   }
@@ -51,6 +54,8 @@ test("returns no_match for an absent behavior instead of inventing a file", asyn
     });
     assert.equal(result.status, "no_match");
     assert.equal(result.results.length, 0);
+    assert.equal(result.searched.candidates, 0);
+    assert.equal(result.searched.truncated, false);
   } finally {
     await fixture.cleanup();
   }
@@ -123,6 +128,7 @@ test("a discovery timeout reports fallback_required rather than no_match", async
     });
     assert.equal(result.status, "fallback_required");
     assert.match(result.reason ?? "", /discovery deadline/);
+    assert.equal(result.searched.truncated, true);
   } finally {
     await fixture.cleanup();
   }

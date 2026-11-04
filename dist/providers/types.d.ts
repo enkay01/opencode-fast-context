@@ -54,6 +54,12 @@ export declare const RELEVANCE_CRITERIA: {
     true: string;
     false: string;
 };
+/** Previous prompt, kept only for the locator-contract comparison. */
+export declare const RELEVANCE_INSTRUCTIONS_LEGACY: string;
+export declare const RELEVANCE_CRITERIA_LEGACY: {
+    true: string;
+    false: string;
+};
 export declare function buildState(query: string, candidate: ScoreCandidate): Record<string, unknown>;
 export declare function truncate(text: string, maxChars: number): string;
 export declare function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]>;

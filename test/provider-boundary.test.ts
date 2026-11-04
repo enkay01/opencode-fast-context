@@ -20,6 +20,7 @@ test("missing TYPESAFE_API_KEY is a configuration failure, not a local fallback"
     const result = await runFastContext({ root: fixture.root, query: "retryDelay" });
     assert.equal(result.status, "fallback_required");
     assert.equal(result.results.length, 0);
+    assert.deepEqual(result.searched, { candidates: 0, files: 0, truncated: false });
     assert.match(result.reason ?? "", /TYPESAFE_API_KEY/);
   } finally {
     if (previous !== undefined) process.env.TYPESAFE_API_KEY = previous;
