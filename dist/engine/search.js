@@ -259,11 +259,17 @@ export async function searchRepository(options) {
         });
     }
     if (evidence.length === 0) {
-        return result("no_match", [], {
+        const emptyStatus = discovery.timedOut
+            ? "partial"
+            : status === "fallback_required" || status === "partial"
+                ? status
+                : "no_match";
+        const emptyReason = reason ?? "candidates were found but no readable evidence remained";
+        return result(emptyStatus, [], {
             candidateCount: discovery.candidates.length,
             timings: { discovery: discoveryMs, ranking: rankingMs, total: 0 },
             provider,
-            reason: reason ?? "candidates were found but no readable evidence remained",
+            reason: discovery.timedOut ? `discovery deadline expired; ${emptyReason}` : emptyReason,
         });
     }
     if (discovery.candidates.length > evidence.length)

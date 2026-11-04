@@ -185,3 +185,99 @@ test("searched counts only candidate windows sent to the provider", async () => 
     await fixture.cleanup();
   }
 });
+
+test("filtered-out candidates preserve fallback_required instead of no_match", async () => {
+  const fixture = await makeFixture({
+    "src/secret.ts": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n",
+  });
+  try {
+    const candidate = {
+      id: "src/secret.ts#1-3",
+      path: "src/secret.ts",
+      ranges: [{ start: 1, end: 3 }],
+      excerpt: "private key",
+      matchLines: [1],
+      lexicalScore: 1,
+    };
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "private key",
+      provider: stubProvider(() => 0.9),
+      discoverImpl: async () => ({
+        candidates: [candidate],
+        matchedFiles: 1,
+        fileCount: 1,
+        waves: 1,
+        timedOut: false,
+      }),
+    });
+    assert.equal(result.status, "fallback_required");
+    assert.equal(result.searched.candidates, 0);
+    assert.match(result.reason ?? "", /no sendable candidates/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("filtered-out candidates after a timeout return partial", async () => {
+  const fixture = await makeFixture({
+    "src/secret.ts": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n",
+  });
+  try {
+    const candidate = {
+      id: "src/secret.ts#1-3",
+      path: "src/secret.ts",
+      ranges: [{ start: 1, end: 3 }],
+      excerpt: "private key",
+      matchLines: [1],
+      lexicalScore: 1,
+    };
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "private key",
+      provider: stubProvider(() => 0.9),
+      discoverImpl: async () => ({
+        candidates: [candidate],
+        matchedFiles: 1,
+        fileCount: 1,
+        waves: 2,
+        timedOut: true,
+      }),
+    });
+    assert.equal(result.status, "partial");
+    assert.equal(result.searched.truncated, true);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a candidate whose file disappears preserves fallback_required", async () => {
+  const fixture = await makeFixture({ "src/a.ts": "export const a = 1\n" });
+  try {
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "missing",
+      provider: stubProvider(() => 0.9),
+      discoverImpl: async () => ({
+        candidates: [
+          {
+            id: "src/missing.ts#1-1",
+            path: "src/missing.ts",
+            ranges: [{ start: 1, end: 1 }],
+            excerpt: "missing",
+            matchLines: [1],
+            lexicalScore: 1,
+          },
+        ],
+        matchedFiles: 1,
+        fileCount: 1,
+        waves: 1,
+        timedOut: false,
+      }),
+    });
+    assert.equal(result.status, "fallback_required");
+    assert.equal(result.searched.candidates, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
