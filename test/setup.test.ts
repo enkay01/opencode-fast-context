@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -141,4 +141,64 @@ test("setup handles a closing bracket inside a plugins comment", async () => {
   const output = setup.writePlugins(text, ["existing", target]);
   const parsed = setup.parseConfig(output);
   assert.deepEqual(parsed.plugins, ["existing", target]);
+});
+
+test("an older Fast Context version is owned but not an exact target", async () => {
+  const setup = await import("../scripts/setup-opencode.mjs");
+  assert.equal(setup.isFastContextEntry("opencode-fast-context@0.0.9"), true);
+  assert.equal(setup.isExactTarget("opencode-fast-context@0.0.9", "opencode-fast-context@0.1.0"), false);
+  assert.equal(setup.isExactTarget("opencode-fast-context@0.1.0", "opencode-fast-context@0.1.0"), true);
+});
+
+test("setup upgrades an older pinned version instead of claiming no change", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fast-context-upgrade-"));
+  const config = join(root, "opencode.json");
+  const targetSpec = "opencode-fast-context@0.1.0";
+  await writeFile(config, '{"plugins":["opencode-fast-context@0.0.9"]}\n');
+  const env = {
+    ...process.env,
+    FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",
+    TYPESAFE_API_KEY: "dummy-setup-key",
+  };
+  const run = () =>
+    execFileSync(
+      "node",
+      [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "project", "--package", targetSpec],
+      { cwd: root, env, encoding: "utf8" },
+    );
+  try {
+    assert.match(run(), /Updated/);
+    const text = await readFile(config, "utf8");
+    assert.ok(text.includes(targetSpec));
+    assert.ok(!text.includes("0.0.9"));
+    assert.match(run(), /no change/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("setup replaces a different local checkout with the requested checkout", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fast-context-checkout-"));
+  const oldCheckout = join(root, "old-checkout");
+  await mkdir(oldCheckout, { recursive: true });
+  await writeFile(join(oldCheckout, "package.json"), JSON.stringify({ name: "opencode-fast-context" }));
+  const config = join(root, "opencode.json");
+  await writeFile(config, JSON.stringify({ plugins: [`file://${oldCheckout}`] }));
+  const env = {
+    ...process.env,
+    FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",
+    TYPESAFE_API_KEY: "dummy-setup-key",
+  };
+  try {
+    execFileSync(
+      "node",
+      [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "project", "--package", target],
+      { cwd: root, env, encoding: "utf8" },
+    );
+    const text = await readFile(config, "utf8");
+    assert.ok(text.includes(target));
+    assert.ok(!text.includes(oldCheckout));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

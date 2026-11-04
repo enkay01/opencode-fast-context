@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PLUGIN_ID = "fast-context";
 const PACKAGE_NAME = "opencode-fast-context";
@@ -143,16 +143,51 @@ export function entrySpec(entry) {
   return null;
 }
 
+function isLocalFastContextPath(spec) {
+  if (!spec.startsWith("file://")) return false;
+  try {
+    const directory = fileURLToPath(spec);
+    if (basename(directory) === PACKAGE_NAME) return true;
+    const pkg = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
+    return pkg?.name === PACKAGE_NAME;
+  } catch {
+    return false;
+  }
+}
+
+/** True for any Fast Context entry, including old versions and other checkouts. */
 export function isFastContextEntry(entry, target) {
   const spec = entrySpec(entry);
   if (!spec) return false;
-  return (
-    spec === target ||
+  if (target && spec === target) return true;
+  if (
     spec === PLUGIN_ID ||
     spec === PACKAGE_NAME ||
     spec.startsWith(`${PACKAGE_NAME}@`) ||
     spec.startsWith(`${PACKAGE_NAME}/`)
-  );
+  ) {
+    return true;
+  }
+  return isLocalFastContextPath(spec);
+}
+
+/** True only for the exact requested spec. */
+export function isExactTarget(entry, target) {
+  return entrySpec(entry) === target;
+}
+
+function replaceEntry(entry, target) {
+  if (entry && typeof entry === "object" && typeof entry.package === "string") {
+    return { ...entry, package: target };
+  }
+  return target;
+}
+
+function assertExactTarget(entries, target, context) {
+  const owned = entries.filter((entry) => isFastContextEntry(entry, target));
+  if (owned.length !== 1 || !isExactTarget(owned[0], target)) {
+    throw new Error(`${context}: expected exactly one entry for ${target}`);
+  }
 }
 
 function skipTrivia(text, index) {
@@ -325,6 +360,7 @@ async function main() {
 
   const entries = pluginEntries(parsed);
   const present = entries.some((entry) => isFastContextEntry(entry, target));
+  const exact = entries.some((entry) => isExactTarget(entry, target));
 
   if (args.remove) {
     if (!present) {
@@ -347,7 +383,7 @@ async function main() {
     return;
   }
 
-  if (present) {
+  if (exact) {
     await verifyIdentity(target);
     console.log(`Already configured in ${config.path}; no change.`);
     console.log(`Plugin id: ${PLUGIN_ID}`);
@@ -355,21 +391,39 @@ async function main() {
     return;
   }
 
-  const nextText = writePlugins(existingText, [...entries, target]);
+  const upgraded = present;
+  let nextEntries;
+  if (upgraded) {
+    let replaced = false;
+    nextEntries = entries.flatMap((entry) => {
+      if (!isFastContextEntry(entry, target)) return [entry];
+      if (replaced) return [];
+      replaced = true;
+      return [replaceEntry(entry, target)];
+    });
+  } else {
+    nextEntries = [...entries, target];
+  }
+
+  const nextText = writePlugins(existingText, nextEntries);
   const candidate = parseConfig(nextText);
-  if (!pluginEntries(candidate).some((entry) => isFastContextEntry(entry, target))) {
-    fail("setup candidate is valid JSONC but does not contain the plugin; refusing to write");
+  try {
+    assertExactTarget(pluginEntries(candidate), target, "setup candidate");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
   await mkdir(dirname(config.path), { recursive: true });
   await atomicWrite(config.path, nextText);
 
   const after = parseConfig(await readFile(config.path, "utf8"));
-  if (!pluginEntries(after).some((entry) => isFastContextEntry(entry, target))) {
-    fail("configuration was written but the plugin entry is not present; inspect the file");
+  try {
+    assertExactTarget(pluginEntries(after), target, "final configuration");
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
   await verifyIdentity(target);
 
-  console.log(`Added ${target} to ${config.path}.`);
+  console.log(`${upgraded ? "Updated" : "Added"} ${target} in ${config.path}.`);
   console.log(`Plugin id: ${PLUGIN_ID}`);
   console.log(`TYPESAFE_API_KEY: ${credentialPresent() ? "present" : "missing"}`);
   console.log(`Restart OpenCode from the same environment.`);
