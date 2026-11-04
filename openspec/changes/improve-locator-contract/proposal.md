@@ -17,20 +17,20 @@ Three specific defects came out of that session:
 - Put the usage contract where the model reads it: the tool description states that the tool locates existing files and ranges, cannot prove absence, and should be paired with a directory listing or `git status` for status and completeness questions.
 - Report the searched scope with `no_match`, so a negative result states what was covered instead of reading as a global claim.
 - Align the provider relevance prompts in `src/providers/systemone.ts` and `src/providers/types.ts` with locator wording, so Jev judges whether a snippet is relevant context for a query rather than whether it "answers" the question.
-- Add guidance that concrete identifiers and filenames rank better than narrative prose, both in the description and in the README usage section.
+- Give query examples using known domain names, symbols, and filenames when available; retain support for behavior queries that do not name target files.
+- Verify the effective description, input schema, and invocation guidance delivered by a real isolated OpenCode session; generate an inspectable agent-contract document from the registered definitions.
+- Evaluate the Jev prompt change on labelled code and design-document cases with stage traces and untouched acceptance queries. Add no discovery penalties or new result-selection threshold.
 
 ## Capabilities
 
 ### New capabilities
 
-- `locator-contract`: the positioning, disclosure, and precision contract for the retrieval tool as the agent sees it.
-
-### Modified capabilities
-
-- `fast-context-retrieval`: adds searched-scope reporting on `no_match`. No discovery scoring change.
+- `locator-contract`: the public and harness wording, schema visibility, searched-scope semantics, and evidence requirements for context retrieval. All requirements for this change live in this single capability.
 
 ## Impact
 
 User-facing text changes in `README.md`, `src/tool.ts` (`TOOL_DESCRIPTION`), `src/guidance.ts` (`AUTO_INVOKE_GUIDANCE`), and the relevance prompts in `src/providers/systemone.ts` and `src/providers/types.ts`. Result shape gains a searched-scope field on `no_match`, which is additive for existing callers. Tests cover the new description wording, the scope field, and the aligned prompts.
 
 The benchmark evidence is not deleted or restated as a parity claim. It moves out of the front-page narrative and stays in `BENCHMARK.md` with its method and limitations intact. `openspec/changes/ship-v1-release` records the original disclosure requirement; this change supersedes the README placement of that disclosure, not the underlying measurement.
+
+This is the sole implementation proposal synthesizing the earlier technical proposal and the Project Partner/Product Design recommendations, including the user's rejection of precision penalties. No competing change or runtime implementation is added.
