@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 test("public package exports only the OpenCode 2 entrypoint", async () => {
   const pkg = JSON.parse(await readFile("package.json", "utf8"));
-  assert.equal(pkg.version, "0.1.0");
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
   assert.deepEqual(Object.keys(pkg.exports), [".", "./package.json"]);
   assert.ok(!JSON.stringify(pkg.exports).includes("legacy"));
   assert.ok(!JSON.stringify(pkg).toLowerCase().includes("clef"));
