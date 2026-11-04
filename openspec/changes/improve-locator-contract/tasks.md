@@ -32,9 +32,9 @@
 
 ## 5. Verify
 
-- [x] 5.1 `npm run verify:release` passes from a clean tree. — Local `npm run verify:release` passed on `335ab9a`: 73 tests, build, API and contract smoke, real runtime load, package and secret checks.
-- [x] 5.2 GitHub Actions verification passes on Node 22, 24, and 26. — Run 41878403759 passed all three jobs.
-- [x] 5.3 Extend the real isolated OpenCode runtime check to capture effective description, schema, and guidance using supported inspection or a fake model request; verify query/maxFiles validation, suggest once, off retaining tool registration, and no context-preparation provider calls. — `scripts/smoke-contract-runtime.mjs` captures the model-visible description, schema, and suggest/off guidance in a real OpenCode 2.2.5 run against a local fake OpenAI-compatible transport, with no Jev call. `scripts/smoke-opencode.mjs` also checks the registered definitions and zero fetches during context preparation.
+- [x] 5.1 `npm run verify:release` passes from a clean tree. — Local `npm run verify:release` passed on `4308139`: 75 tests, build, agent-contract drift, API and runtime contract smokes, real runtime load, package and secret checks.
+- [x] 5.2 GitHub Actions verification passes on Node 22, 24, and 26. — Run 41885236494 passed all three jobs.
+- [x] 5.3 Extend the real isolated OpenCode runtime check to capture effective description, schema, and guidance using supported inspection or a fake model request; verify query/maxFiles validation, suggest once, off retaining tool registration, and no context-preparation provider calls. — `scripts/smoke-contract-runtime.mjs` captures the model-visible description, schema (`query` required, `additionalProperties: false`, maxFiles 1-20 and ceiling wording), and suggest/off guidance in a real OpenCode 2.2.5 run against a local fake OpenAI-compatible transport, with no Jev call. `scripts/smoke-opencode.mjs` also checks the registered definitions and zero fetches during context preparation.
 - [ ] 5.4 Code Review Partner reviews this change against the proposal before merge.
 - [x] 5.5 Record runtime version and sanitized harness evidence; confirm no runtime implementation, release, or local install is implied by proposal approval alone. — `docs/runtime-evidence.md` records runtime version, hashes, commands, and prompt-comparison limits.
 
