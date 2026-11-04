@@ -1,59 +1,52 @@
-import { createClefProvider, createJevProvider } from "./providers/systemone.ts";
+import { createJevProvider } from "./providers/systemone.ts";
 import type { DecisionProvider } from "./providers/types.ts";
+import { normalizeAutoInvoke, type AutoInvoke } from "./guidance.ts";
 
-export type ProviderKind = "none" | "jev" | "clef";
-
+/** Public V1 configuration. Anything else is ignored. */
 export interface FastContextConfig {
-  /** Which decision provider to rank with. Defaults to none (deterministic ranking). */
-  provider?: ProviderKind;
-  /** Override the default model for the selected provider. */
-  model?: string;
-  maxFiles?: number;
-  deadlineMs?: number;
+  /**
+   * "suggest" adds one session-context instruction telling the model when to call
+   * `fast_context_search`; "off" adds nothing. Neither mode calls a provider.
+   */
+  autoInvoke?: AutoInvoke;
 }
 
 export interface ProviderResolution {
   provider: DecisionProvider | null;
-  /** Set when a provider was requested but could not be configured. */
+  /** Set when Jev cannot be configured. Never contains credential material. */
   error: string | null;
 }
 
-export function resolveProvider(
-  config: FastContextConfig,
-  env: NodeJS.ProcessEnv = process.env,
-): ProviderResolution {
-  const kind = config.provider ?? (env.FAST_CONTEXT_PROVIDER as ProviderKind | undefined) ?? "none";
-  if (kind === "none") return { provider: null, error: null };
+/** Internal test seam; never exposed through plugin options. */
+export interface ProviderOverrides {
+  fetchImpl?: typeof fetch;
+  endpoint?: string;
+}
 
-  if (kind === "jev") {
-    const apiKey = env.TYPESAFE_API_KEY;
-    if (!apiKey) {
-      return { provider: null, error: "TYPESAFE_API_KEY is not set" };
-    }
+export function readPublicConfig(options: Record<string, unknown> | undefined): FastContextConfig {
+  const config: FastContextConfig = { autoInvoke: normalizeAutoInvoke(options?.autoInvoke) };
+  return config;
+}
+
+export function resolveProvider(
+  env: NodeJS.ProcessEnv = process.env,
+  overrides: ProviderOverrides = {},
+): ProviderResolution {
+  const apiKey = env.TYPESAFE_API_KEY;
+  if (!apiKey) {
     return {
-      provider: createJevProvider({
-        apiKey,
-        ...(config.model ? { model: config.model } : {}),
-        ...(env.TYPESAFE_ENDPOINT ? { baseUrl: env.TYPESAFE_ENDPOINT } : {}),
-      }),
-      error: null,
+      provider: null,
+      error:
+        "TYPESAFE_API_KEY is not set. Provide it through your shell or secret manager before starting " +
+        "OpenCode. Fast Context does not fall back to local ranking.",
     };
   }
 
-  const apiToken = env.CLOUDFLARE_AI_API_TOKEN ?? env.CLOUDFLARE_API_TOKEN;
-  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
-  if (!apiToken) {
-    return { provider: null, error: "CLOUDFLARE_API_TOKEN is not set" };
-  }
-  if (!accountId) {
-    return { provider: null, error: "CLOUDFLARE_ACCOUNT_ID is not set" };
-  }
   return {
-    provider: createClefProvider({
-      apiToken,
-      accountId,
-      ...(config.model ? { model: config.model } : {}),
-      ...(env.CLOUDFLARE_AI_BASE_URL ? { baseUrl: env.CLOUDFLARE_AI_BASE_URL } : {}),
+    provider: createJevProvider({
+      apiKey,
+      ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
+      ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}),
     }),
     error: null,
   };

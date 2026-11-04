@@ -1,4 +1,5 @@
 export type SearchStatus = "complete" | "partial" | "no_match" | "fallback_required" | "cancelled";
+export type AblationStage = "v0" | "climb1" | "climb2" | "climb3";
 export interface EvidenceRange {
     /** Inclusive, 1-based. */
     start: number;
@@ -31,6 +32,24 @@ export interface Timings {
     ranking: number;
     total: number;
 }
+export interface RetrievalDiagnostics {
+    /** Unique files in the post-discovery pool, before provider ranking. */
+    poolFiles: string[];
+    /** Ranked candidates with the raw provider decision, if any. */
+    ranked: Array<{
+        path: string;
+        decision: number | null;
+        lexical: number;
+    }>;
+    /** True when the relevance threshold rejected every candidate. */
+    abstained: boolean;
+    abstainThreshold: number | null;
+    discoveryTimedOut: boolean;
+    /** Candidates whose payload was redacted before the provider saw it. */
+    redactedCandidates?: number;
+    /** Candidates rejected before the provider saw them. */
+    rejectedCandidates?: number;
+}
 export interface SearchResult {
     version: 1;
     query: string;
@@ -41,6 +60,7 @@ export interface SearchResult {
     provider: ProviderInfo;
     timings: Timings;
     reason?: string;
+    diagnostics?: RetrievalDiagnostics;
 }
 export interface Limits {
     /** Maximum number of local ripgrep waves, including the query wave. */
@@ -63,5 +83,7 @@ export interface Limits {
     maxFileBytes: number;
     /** Below this top decision score, a provider-ranked search returns no_match. */
     minDecision: number;
+    /** Optional ablation stage for reproducible hill-climb experiments. */
+    ablationStage?: AblationStage;
 }
 export declare const DEFAULT_LIMITS: Limits;

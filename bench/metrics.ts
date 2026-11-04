@@ -22,6 +22,10 @@ export interface Metrics {
   top1Correct: boolean | null;
   reciprocalRank: number | null;
   lineCoverage: number | null;
+  discoveryHit: boolean | null;
+  rankHitGivenDiscovery: boolean | null;
+  falseAbstention: boolean | null;
+  rangeCoverageGivenFile: number | null;
   absentCorrect: boolean | null;
   elapsedMs: number;
   contextChars: number;
@@ -50,6 +54,10 @@ export function scoreRun(
       top1Correct: null,
       reciprocalRank: null,
       lineCoverage: null,
+      discoveryHit: null,
+      rankHitGivenDiscovery: null,
+      falseAbstention: null,
+      rangeCoverageGivenFile: null,
       absentCorrect:
         !failed &&
         result.results.length === 0 &&
@@ -76,6 +84,12 @@ export function scoreRun(
     }
   }
   const lineCoverage = total === 0 ? null : Math.min(1, covered / total);
+  const pool = new Set(result.diagnostics?.poolFiles ?? []);
+  const discoveryHit = result.diagnostics ? [...labelPaths].some((path) => pool.has(path)) : null;
+  const fileCoverage =
+    total === 0 || !top5.some((evidence) => labelPaths.has(evidence.path))
+      ? null
+      : Math.min(1, covered / total);
   const firstHit = result.results.findIndex((evidence) => labelPaths.has(evidence.path));
   const top1Correct = result.results.length > 0 ? labelPaths.has(result.results[0]!.path) : false;
   const reciprocalRank = firstHit === -1 ? 0 : round(1 / (firstHit + 1));
@@ -90,6 +104,10 @@ export function scoreRun(
     top1Correct,
     reciprocalRank,
     lineCoverage: lineCoverage === null ? null : round(lineCoverage),
+    discoveryHit,
+    rankHitGivenDiscovery: discoveryHit === true ? hitPaths.size > 0 : null,
+    falseAbstention: result.status === "no_match",
+    rangeCoverageGivenFile: fileCoverage === null ? null : round(fileCoverage),
     absentCorrect: null,
     elapsedMs,
     contextChars,

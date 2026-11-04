@@ -5,6 +5,8 @@ export type SearchStatus =
   | "fallback_required"
   | "cancelled";
 
+export type AblationStage = "v0" | "climb1" | "climb2" | "climb3";
+
 export interface EvidenceRange {
   /** Inclusive, 1-based. */
   start: number;
@@ -38,6 +40,21 @@ export interface Timings {
   total: number;
 }
 
+export interface RetrievalDiagnostics {
+  /** Unique files in the post-discovery pool, before provider ranking. */
+  poolFiles: string[];
+  /** Ranked candidates with the raw provider decision, if any. */
+  ranked: Array<{ path: string; decision: number | null; lexical: number }>;
+  /** True when the relevance threshold rejected every candidate. */
+  abstained: boolean;
+  abstainThreshold: number | null;
+  discoveryTimedOut: boolean;
+  /** Candidates whose payload was redacted before the provider saw it. */
+  redactedCandidates?: number;
+  /** Candidates rejected before the provider saw them. */
+  rejectedCandidates?: number;
+}
+
 export interface SearchResult {
   version: 1;
   query: string;
@@ -48,6 +65,7 @@ export interface SearchResult {
   provider: ProviderInfo;
   timings: Timings;
   reason?: string;
+  diagnostics?: RetrievalDiagnostics;
 }
 
 export interface Limits {
@@ -71,6 +89,8 @@ export interface Limits {
   maxFileBytes: number;
   /** Below this top decision score, a provider-ranked search returns no_match. */
   minDecision: number;
+  /** Optional ablation stage for reproducible hill-climb experiments. */
+  ablationStage?: AblationStage;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -78,10 +98,11 @@ export const DEFAULT_LIMITS: Limits = {
   concurrency: 8,
   candidates: 400,
   rankedCandidates: 24,
-  windowLines: 24,
+  windowLines: 28,
   maxFiles: 10,
   maxLines: 200,
   deadlineMs: 10_000,
   maxFileBytes: 2_000_000,
   minDecision: 0.15,
+  ablationStage: "climb3",
 };

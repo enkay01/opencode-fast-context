@@ -1,4 +1,6 @@
-import type { FastContextConfig } from "./config.ts";
+import { Plugin } from "@opencode/plugin";
+import { readPublicConfig } from "./config.ts";
+import { applyAutoInvokeGuidance } from "./guidance.ts";
 import {
   TOOL_DESCRIPTION,
   TOOL_INPUT_SCHEMA,
@@ -6,45 +8,21 @@ import {
   runFastContext,
 } from "./tool.ts";
 
-interface ToolEditor {
-  add(tool: {
-    name: string;
-    description: string;
-    input: unknown;
-    options?: { codemode?: boolean };
-    execute: (input: { query: string; maxFiles?: number }, context: { signal?: AbortSignal }) => Promise<{
-      content: string;
-      metadata?: Record<string, unknown>;
-    }>;
-  }): void;
-}
-
-interface ToolRegistration {
-  dispose?: () => Promise<void> | void;
-}
-
-interface PluginContext {
-  location: { directory: string; project?: { directory?: string | null } };
-  options?: Record<string, unknown>;
-  tool: {
-    transform(fn: (editor: ToolEditor) => void): Promise<ToolRegistration>;
-  };
-}
-
-/** OpenCode 2.x plugin entry point. */
-export default {
+/** OpenCode 2 plugin entry point. */
+export default Plugin.define({
   id: "fast-context",
-  async setup(ctx: PluginContext): Promise<() => Promise<void>> {
-    const config = (ctx.options ?? {}) as FastContextConfig;
+  async setup(ctx: Plugin.Context) {
+    const config = readPublicConfig(ctx.options as Record<string, unknown> | undefined);
     const root = ctx.location.project?.directory || ctx.location.directory;
 
-    const registration = await ctx.tool.transform((editor) => {
+    const toolRegistration = await ctx.tool.transform((editor) => {
       editor.add({
         name: "fast_context_search",
         description: TOOL_DESCRIPTION,
         input: TOOL_INPUT_SCHEMA,
         options: { codemode: false },
-        execute: async (input, toolContext) => {
+        execute: async (rawInput, toolContext) => {
+          const input = rawInput as { query: string; maxFiles?: number };
           const result = await runFastContext({
             root,
             query: input.query,
@@ -60,10 +38,16 @@ export default {
       });
     });
 
+    const guidanceRegistration =
+      config.autoInvoke === "off"
+        ? null
+        : await ctx.session.hook("context", (input) => {
+            applyAutoInvokeGuidance(input.system, "suggest");
+          });
+
     return async () => {
-      await registration?.dispose?.();
+      await guidanceRegistration?.dispose();
+      await toolRegistration.dispose();
     };
   },
-};
-
-export { FastContextPlugin } from "./legacy.ts";
+});

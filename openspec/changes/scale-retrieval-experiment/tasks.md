@@ -2,16 +2,16 @@
 
 ## 1. Freeze the protocol
 
-- [ ] 1.1 Review and commit `EXPERIMENT_PROTOCOL.md` before new measured variants run.
-- [ ] 1.2 Record H0 as commit `1137754`; register any existing uncommitted retrieval work as named variants.
-- [ ] 1.3 Add a machine-readable experiment manifest and protocol hash.
+- [x] 1.1 Review and commit `EXPERIMENT_PROTOCOL.md` before new measured variants run.
+- [x] 1.2 Record H0 as commit `1137754`; register any existing uncommitted retrieval work as named variants. `bench/experiment/manifest.json` registers WIP-climb1/2/3 and H1-24/48/64.
+- [x] 1.3 Add a machine-readable experiment manifest and protocol hash.
 
 ## 2. Deepen benchmark observability
 
-- [ ] 2.1 Record discovery pools, ranked decisions, abstention inputs, range extraction, and stage timings.
-- [ ] 2.2 Add stable run IDs and append-only JSONL output.
-- [ ] 2.3 Make analysis reject mixed, incomplete, duplicated, or unregistered runs.
-- [ ] 2.4 Add tests for each rejection path and stage classification.
+- [x] 2.1 Record discovery pools, ranked decisions, abstention inputs, range extraction, and stage timings.
+- [x] 2.2 Add stable run IDs and append-only JSONL output.
+- [x] 2.3 Make analysis reject mixed, incomplete, duplicated, or unregistered runs.
+- [x] 2.4 Add tests for each rejection path and stage classification.
 
 ## 3. Build the development corpus
 
@@ -24,8 +24,8 @@
 ## 4. Run the hill-climb
 
 - [ ] 4.1 Measure H0 through repository-stratified five-fold evaluation.
-- [ ] 4.2 Run H1 provider-budget ablations.
-- [ ] 4.3 Run H2 vocabulary-expansion ablations.
+- [x] 4.2 Run H1 provider-budget ablations. Preliminary: six tuning tasks, one repetition; see `bench/experiment/H1-result.md`. Budget 24 retained.
+- [x] 4.3 Run H2 vocabulary-expansion ablations. Preliminary: six tuning tasks; see `bench/experiment/H2-result.md`. WIP-climb2 promoted.
 - [ ] 4.4 Run H3 hierarchical navigation if its hypothesis remains supported.
 - [ ] 4.5 Run H4 multi-window ablations under a fixed context budget.
 - [ ] 4.6 Calibrate H5 abstention using out-of-fold predictions.

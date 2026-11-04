@@ -27,6 +27,7 @@ async function callSystemOne(
   candidate: ScoreCandidate,
   timeoutMs: number,
   signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ noul: number; model: string; usage: { input: number; output: number } | null }> {
   const body = {
     model,
@@ -45,7 +46,7 @@ async function callSystemOne(
 
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetchImplRef.current(url, {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
@@ -53,12 +54,17 @@ async function callSystemOne(
     });
   } catch (error) {
     if (signal?.aborted) throw new ProviderError(providerId, "cancelled");
-    throw new ProviderError(providerId, `request failed: ${(error as Error).message}`);
+    const code = (error as { code?: string }).code ?? (error as Error).name ?? "network error";
+    throw new ProviderError(providerId, `request failed (${code})`);
   }
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new ProviderError(providerId, `HTTP ${response.status}: ${text.slice(0, 240)}`, response.status);
+    const requestId = safeRequestId(response.headers.get("x-request-id"));
+    throw new ProviderError(
+      providerId,
+      `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`,
+      response.status,
+    );
   }
 
   const json = (await response.json()) as
@@ -67,7 +73,7 @@ async function callSystemOne(
 
   const payload = "result" in json ? json.result : json;
   if ("errors" in json && Array.isArray(json.errors) && json.errors.length > 0) {
-    throw new ProviderError(providerId, `provider errors: ${JSON.stringify(json.errors).slice(0, 240)}`);
+    throw new ProviderError(providerId, "provider rejected the request");
   }
 
   const answer = payload.answers?.relevant;
@@ -83,6 +89,13 @@ async function callSystemOne(
     : null;
 
   return { noul: clamp01(answer.noul), model: payload.model ?? model, usage };
+}
+
+function safeRequestId(value: string | null): string | null {
+  if (!value) return null;
+  // Strict allow-list: no underscores or token prefixes.
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(value)) return null;
+  return value;
 }
 
 function clamp01(value: number): number {
@@ -121,7 +134,7 @@ async function callChoice(
 
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetchImplRef.current(url, {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
@@ -129,12 +142,17 @@ async function callChoice(
     });
   } catch (error) {
     if (signal?.aborted) throw new ProviderError(providerId, "cancelled");
-    throw new ProviderError(providerId, `request failed: ${(error as Error).message}`);
+    const code = (error as { code?: string }).code ?? (error as Error).name ?? "network error";
+    throw new ProviderError(providerId, `request failed (${code})`);
   }
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new ProviderError(providerId, `HTTP ${response.status}: ${text.slice(0, 240)}`, response.status);
+    const requestId = safeRequestId(response.headers.get("x-request-id"));
+    throw new ProviderError(
+      providerId,
+      `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`,
+      response.status,
+    );
   }
 
   const json = (await response.json()) as
@@ -143,7 +161,7 @@ async function callChoice(
 
   const payload = "result" in json ? json.result : json;
   if ("errors" in json && Array.isArray(json.errors) && json.errors.length > 0) {
-    throw new ProviderError(providerId, `provider errors: ${JSON.stringify(json.errors).slice(0, 240)}`);
+    throw new ProviderError(providerId, "provider rejected the request");
   }
   const answer = payload.answers?.directory;
   const ids = new Set(options.map((option) => option.id));
@@ -159,6 +177,8 @@ async function callChoice(
 
   return { choice, probabilities, usage, model: payload.model ?? model };
 }
+
+const fetchImplRef: { current: typeof fetch } = { current: fetch };
 
 async function scoreCandidates(
   providerId: "jev" | "clef",
@@ -193,6 +213,7 @@ async function scoreCandidates(
         candidate,
         Math.min(remaining, 8000),
         options.signal,
+        fetchImplRef.current,
       );
       scores[candidate.id] = result.noul;
       actualModel = result.model;
@@ -224,7 +245,10 @@ async function scoreCandidates(
 export interface JevConfig {
   apiKey: string;
   model?: string;
+  /** Internal test seam; production always uses the fixed TypeSafe endpoint. */
   baseUrl?: string;
+  /** Internal test seam for mocked transports. */
+  fetchImpl?: typeof fetch;
 }
 
 export function createJevProvider(config: JevConfig): DecisionProvider {
@@ -238,6 +262,7 @@ export function createJevProvider(config: JevConfig): DecisionProvider {
       return callChoice("jev", endpoint, { authorization: `Bearer ${config.apiKey}` }, model, query, options, Math.min(opts.deadline - Date.now(), 8000), opts.signal);
     },
     score(query, candidates, options) {
+      fetchImplRef.current = config.fetchImpl ?? fetch;
       return scoreCandidates(
         "jev",
         model,

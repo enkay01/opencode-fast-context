@@ -1,5 +1,5 @@
 import { ProviderError, RELEVANCE_CRITERIA, RELEVANCE_INSTRUCTIONS, buildState, mapWithConcurrency, } from "./types.js";
-async function callSystemOne(providerId, url, headers, model, query, candidate, timeoutMs, signal) {
+async function callSystemOne(providerId, url, headers, model, query, candidate, timeoutMs, signal, fetchImpl = fetch) {
     const body = {
         model,
         state: buildState(query, candidate),
@@ -16,7 +16,7 @@ async function callSystemOne(providerId, url, headers, model, query, candidate, 
         signals.push(signal);
     let response;
     try {
-        response = await fetch(url, {
+        response = await fetchImplRef.current(url, {
             method: "POST",
             headers: { "content-type": "application/json", ...headers },
             body: JSON.stringify(body),
@@ -26,16 +26,17 @@ async function callSystemOne(providerId, url, headers, model, query, candidate, 
     catch (error) {
         if (signal?.aborted)
             throw new ProviderError(providerId, "cancelled");
-        throw new ProviderError(providerId, `request failed: ${error.message}`);
+        const code = error.code ?? error.name ?? "network error";
+        throw new ProviderError(providerId, `request failed (${code})`);
     }
     if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new ProviderError(providerId, `HTTP ${response.status}: ${text.slice(0, 240)}`, response.status);
+        const requestId = safeRequestId(response.headers.get("x-request-id"));
+        throw new ProviderError(providerId, `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`, response.status);
     }
     const json = (await response.json());
     const payload = "result" in json ? json.result : json;
     if ("errors" in json && Array.isArray(json.errors) && json.errors.length > 0) {
-        throw new ProviderError(providerId, `provider errors: ${JSON.stringify(json.errors).slice(0, 240)}`);
+        throw new ProviderError(providerId, "provider rejected the request");
     }
     const answer = payload.answers?.relevant;
     if (!answer || typeof answer.noul !== "number" || Number.isNaN(answer.noul)) {
@@ -48,6 +49,14 @@ async function callSystemOne(providerId, url, headers, model, query, candidate, 
         }
         : null;
     return { noul: clamp01(answer.noul), model: payload.model ?? model, usage };
+}
+function safeRequestId(value) {
+    if (!value)
+        return null;
+    // Strict allow-list: no underscores or token prefixes.
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(value))
+        return null;
+    return value;
 }
 function clamp01(value) {
     return Math.min(1, Math.max(0, value));
@@ -73,7 +82,7 @@ async function callChoice(providerId, url, headers, model, query, options, timeo
         signals.push(signal);
     let response;
     try {
-        response = await fetch(url, {
+        response = await fetchImplRef.current(url, {
             method: "POST",
             headers: { "content-type": "application/json", ...headers },
             body: JSON.stringify(body),
@@ -83,16 +92,17 @@ async function callChoice(providerId, url, headers, model, query, options, timeo
     catch (error) {
         if (signal?.aborted)
             throw new ProviderError(providerId, "cancelled");
-        throw new ProviderError(providerId, `request failed: ${error.message}`);
+        const code = error.code ?? error.name ?? "network error";
+        throw new ProviderError(providerId, `request failed (${code})`);
     }
     if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new ProviderError(providerId, `HTTP ${response.status}: ${text.slice(0, 240)}`, response.status);
+        const requestId = safeRequestId(response.headers.get("x-request-id"));
+        throw new ProviderError(providerId, `HTTP ${response.status}${requestId ? ` (request ${requestId})` : ""}`, response.status);
     }
     const json = (await response.json());
     const payload = "result" in json ? json.result : json;
     if ("errors" in json && Array.isArray(json.errors) && json.errors.length > 0) {
-        throw new ProviderError(providerId, `provider errors: ${JSON.stringify(json.errors).slice(0, 240)}`);
+        throw new ProviderError(providerId, "provider rejected the request");
     }
     const answer = payload.answers?.directory;
     const ids = new Set(options.map((option) => option.id));
@@ -107,6 +117,7 @@ async function callChoice(providerId, url, headers, model, query, options, timeo
         : null;
     return { choice, probabilities, usage, model: payload.model ?? model };
 }
+const fetchImplRef = { current: fetch };
 async function scoreCandidates(providerId, model, endpoint, headers, query, candidates, options) {
     const scores = {};
     let usage = null;
@@ -122,7 +133,7 @@ async function scoreCandidates(providerId, model, endpoint, headers, query, cand
         }
         const remaining = options.deadline - Date.now();
         try {
-            const result = await callSystemOne(providerId, endpoint(index), headers, model, query, candidate, Math.min(remaining, 8000), options.signal);
+            const result = await callSystemOne(providerId, endpoint(index), headers, model, query, candidate, Math.min(remaining, 8000), options.signal, fetchImplRef.current);
             scores[candidate.id] = result.noul;
             actualModel = result.model;
             if (result.usage) {
@@ -160,6 +171,7 @@ export function createJevProvider(config) {
             return callChoice("jev", endpoint, { authorization: `Bearer ${config.apiKey}` }, model, query, options, Math.min(opts.deadline - Date.now(), 8000), opts.signal);
         },
         score(query, candidates, options) {
+            fetchImplRef.current = config.fetchImpl ?? fetch;
             return scoreCandidates("jev", model, () => `${baseUrl}/v1/systemone`, { authorization: `Bearer ${config.apiKey}` }, query, candidates, options);
         },
     };
@@ -182,4 +194,3 @@ export function createClefProvider(config) {
         },
     };
 }
-//# sourceMappingURL=systemone.js.map

@@ -47,9 +47,23 @@ export async function exec(command, args, options) {
 const SECRET_PATTERNS = [
     /(^|\/)\.env(\.|$)/i,
     /(^|\/)\.npmrc$/i,
+    /(^|\/)\.yarnrc(\.yml)?$/i,
     /(^|\/)\.netrc$/i,
+    /(^|\/)\.pypirc$/i,
+    /(^|\/)\.git-credentials$/i,
+    /(^|\/)\.pgpass$/i,
+    /(^|\/)\.my\.cnf$/i,
+    /(^|\/)\.docker\/config\.json$/i,
+    /(^|\/)\.kube\/config$/i,
+    /(^|\/)\.aws\/(credentials|config)$/i,
+    /(^|\/)\.config\/gcloud\//i,
+    /(^|\/)\.azure\//i,
+    /(^|\/)\.ssh\/id_/i,
+    /(^|\/)auth\.json$/i,
+    /(^|\/)(service[-_]account|gcp[-_]credentials)[^/]*\.json$/i,
+    /\.(tfvars|tfstate)$/i,
     /(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/i,
-    /\.(pem|key|p12|pfx|keystore)$/i,
+    /\.(pem|key|p12|pfx|jks|keystore)$/i,
     /(^|\/)credentials?(\.|$)/i,
     /(^|\/)secrets?(\.|$)/i,
 ];
@@ -127,4 +141,3 @@ async function walk(root, prefix = "", depth = 0) {
 export function displayPath(root, absolute) {
     return toPosix(relative(root, absolute));
 }
-//# sourceMappingURL=files.js.map

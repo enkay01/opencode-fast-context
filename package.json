@@ -1,50 +1,60 @@
 {
   "name": "opencode-fast-context",
   "version": "0.1.0",
-  "description": "Bounded, decision-guided codebase retrieval for OpenCode",
+  "description": "Bounded, decision-guided codebase retrieval for OpenCode 2",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/enkay01/opencode-fast-context.git"
+  },
+  "homepage": "https://github.com/enkay01/opencode-fast-context#readme",
+  "bugs": {
+    "url": "https://github.com/enkay01/opencode-fast-context/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./server": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    },
-    "./legacy": {
-      "types": "./dist/legacy.d.ts",
-      "import": "./dist/legacy.js",
-      "default": "./dist/legacy.js"
-    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist",
-    "README.md"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test test/*.test.ts",
+    "test:corpus": "node --test test/corpus.integration.test.ts",
+    "verify:release": "node scripts/verify-release.mjs",
+    "setup:opencode": "node scripts/setup-opencode.mjs",
+    "smoke:opencode": "node scripts/smoke-opencode.mjs",
     "bench": "node bench/run.ts",
     "bench:b0": "node bench/b0.ts",
-    "test:corpus": "node --test test/corpus.integration.test.ts"
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "smoke:runtime": "node scripts/smoke-runtime.mjs"
   },
   "engines": {
-    "opencode": ">=2.0.0",
+    "opencode": ">=2.2.0 <3",
     "node": ">=22.18"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.18.0"
+    "@opencode/plugin": "^2.2.5"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.18.30",
+    "@opencode/plugin": "2.2.5",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   },
@@ -53,8 +63,7 @@
     "opencode-plugin",
     "code-search",
     "retrieval",
-    "jev",
-    "clef"
+    "jev"
   ],
   "sideEffects": false
 }

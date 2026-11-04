@@ -1,17 +1,21 @@
+import { Plugin } from "@opencode/plugin";
+import { readPublicConfig } from "./config.js";
+import { applyAutoInvokeGuidance } from "./guidance.js";
 import { TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA, formatForModel, runFastContext, } from "./tool.js";
-/** OpenCode 2.x plugin entry point. */
-export default {
+/** OpenCode 2 plugin entry point. */
+export default Plugin.define({
     id: "fast-context",
     async setup(ctx) {
-        const config = (ctx.options ?? {});
+        const config = readPublicConfig(ctx.options);
         const root = ctx.location.project?.directory || ctx.location.directory;
-        const registration = await ctx.tool.transform((editor) => {
+        const toolRegistration = await ctx.tool.transform((editor) => {
             editor.add({
                 name: "fast_context_search",
                 description: TOOL_DESCRIPTION,
                 input: TOOL_INPUT_SCHEMA,
                 options: { codemode: false },
-                execute: async (input, toolContext) => {
+                execute: async (rawInput, toolContext) => {
+                    const input = rawInput;
                     const result = await runFastContext({
                         root,
                         query: input.query,
@@ -26,10 +30,14 @@ export default {
                 },
             });
         });
+        const guidanceRegistration = config.autoInvoke === "off"
+            ? null
+            : await ctx.session.hook("context", (input) => {
+                applyAutoInvokeGuidance(input.system, "suggest");
+            });
         return async () => {
-            await registration?.dispose?.();
+            await guidanceRegistration?.dispose();
+            await toolRegistration.dispose();
         };
     },
-};
-export { FastContextPlugin } from "./legacy.js";
-//# sourceMappingURL=index.js.map
+});

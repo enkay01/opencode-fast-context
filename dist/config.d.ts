@@ -1,16 +1,22 @@
 import type { DecisionProvider } from "./providers/types.ts";
-export type ProviderKind = "none" | "jev" | "clef";
+import { type AutoInvoke } from "./guidance.ts";
+/** Public V1 configuration. Anything else is ignored. */
 export interface FastContextConfig {
-    /** Which decision provider to rank with. Defaults to none (deterministic ranking). */
-    provider?: ProviderKind;
-    /** Override the default model for the selected provider. */
-    model?: string;
-    maxFiles?: number;
-    deadlineMs?: number;
+    /**
+     * "suggest" adds one session-context instruction telling the model when to call
+     * `fast_context_search`; "off" adds nothing. Neither mode calls a provider.
+     */
+    autoInvoke?: AutoInvoke;
 }
 export interface ProviderResolution {
     provider: DecisionProvider | null;
-    /** Set when a provider was requested but could not be configured. */
+    /** Set when Jev cannot be configured. Never contains credential material. */
     error: string | null;
 }
-export declare function resolveProvider(config: FastContextConfig, env?: NodeJS.ProcessEnv): ProviderResolution;
+/** Internal test seam; never exposed through plugin options. */
+export interface ProviderOverrides {
+    fetchImpl?: typeof fetch;
+    endpoint?: string;
+}
+export declare function readPublicConfig(options: Record<string, unknown> | undefined): FastContextConfig;
+export declare function resolveProvider(env?: NodeJS.ProcessEnv, overrides?: ProviderOverrides): ProviderResolution;

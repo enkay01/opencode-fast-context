@@ -1,26 +1,37 @@
 import { resolveProvider } from "./config.js";
 import { searchRepository } from "./engine/search.js";
+import { normalizeAutoInvoke } from "./guidance.js";
 export async function runFastContext(options) {
-    const config = options.config ?? {};
-    const resolution = resolveProvider(config);
-    const result = await searchRepository({
+    const config = options.config ?? { autoInvoke: "suggest" };
+    const resolution = resolveProvider(process.env, options.overrides ?? {});
+    if (!resolution.provider) {
+        return {
+            version: 1,
+            query: options.query,
+            status: "fallback_required",
+            results: [],
+            truncated: false,
+            candidateCount: 0,
+            provider: { id: "none", model: null, usage: null },
+            timings: { discovery: 0, ranking: 0, total: 0 },
+            reason: resolution.error ?? "Jev is not configured",
+        };
+    }
+    return searchRepository({
         root: options.root,
         query: options.query,
         ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
-        ...(config.deadlineMs ? { limits: { deadlineMs: config.deadlineMs } } : {}),
         provider: resolution.provider,
         ...(options.signal ? { signal: options.signal } : {}),
     });
-    if (resolution.error && !result.reason) {
-        result.status = "fallback_required";
-        result.reason = `${resolution.error}; set it or choose another provider`;
-    }
-    return result;
+}
+export function readAutoInvoke(config) {
+    return normalizeAutoInvoke(config?.autoInvoke);
 }
 export const TOOL_DESCRIPTION = "Find the files and line ranges in this repository that answer a code question. " +
-    "Runs bounded local search, optionally ranks candidates with a decision model, and returns compact " +
-    "verified citations. Use it before broad manual grep when you need to locate behavior across files. " +
-    "If it reports fallback_required, continue with the normal search tools.";
+    "Runs bounded local search, ranks candidates with Jev, and returns compact verified citations. " +
+    "Use it before broad iterative search when you need to locate behavior across files. " +
+    "If it reports no_match or fallback_required, continue with the ordinary search tools.";
 export const TOOL_INPUT_SCHEMA = {
     type: "object",
     additionalProperties: false,
@@ -40,7 +51,11 @@ export const TOOL_INPUT_SCHEMA = {
     },
 };
 export function formatForModel(result) {
-    const provider = result.provider.id === "none" ? "local ranking" : `${result.provider.id}:${result.provider.model}`;
+    const provider = result.provider.id === "none"
+        ? result.status === "fallback_required"
+            ? "not configured"
+            : "none"
+        : `${result.provider.id}:${result.provider.model}`;
     const header = [
         `status: ${result.status}`,
         `provider: ${provider}`,
@@ -62,7 +77,7 @@ export function formatForModel(result) {
         return `${index + 1}. ${evidence.path}:${ranges}  (${scores})\n${indent(excerptLines(evidence.excerpt, 6))}`;
     });
     const footer = result.status === "fallback_required"
-        ? "\nThe decision provider failed. These are unranked lexical candidates; continue with the normal search tools."
+        ? "\nFast Context could not produce ranked evidence. Continue with the ordinary search tools."
         : "";
     return `${header.join("\n")}\n\n${body.join("\n\n")}${footer}`;
 }
@@ -78,4 +93,3 @@ function indent(text) {
         .map((line) => `   ${line}`)
         .join("\n");
 }
-//# sourceMappingURL=tool.js.map
