@@ -26,6 +26,8 @@ jobs:
           curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.2.5
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
       - run: npm ci
+      - name: Setup smoke with prerequisite checks
+        run: npm run smoke:setup
       - run: npm run verify:release
 
   windows-verification:
@@ -47,4 +49,6 @@ jobs:
       - name: Install OpenCode 2
         run: npm install --global @opencode/cli@2.2.5
       - run: npm ci
+      - name: Setup smoke with prerequisite checks
+        run: npm run smoke:setup
       - run: npm run verify:release

@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runCli } from "./cli.mjs";
 
 const PLUGIN_ID = "fast-context";
 const PACKAGE_NAME = "opencode-fast-context";
@@ -58,14 +58,20 @@ function configPath(scope) {
 
 function checkPrerequisites() {
   if (process.env.FAST_CONTEXT_SETUP_SKIP_CHECKS === "1") return;
-  const opencode = spawnSync("opencode", ["--version"], { encoding: "utf8" });
-  if (opencode.status !== 0) fail("opencode is not available on PATH");
-  const version = String(opencode.stdout).trim();
+  let version;
+  try {
+    version = runCli("opencode", ["--version"]).trim();
+  } catch {
+    fail("opencode is not available on PATH");
+  }
   const major = Number(version.match(/(\d+)\./)?.[1] ?? 0);
   if (major < 2) fail(`OpenCode 2 is required; found ${version}`);
 
-  const rg = spawnSync("rg", ["--version"], { encoding: "utf8" });
-  if (rg.status !== 0) fail("ripgrep (rg) is not available on PATH");
+  try {
+    runCli("rg", ["--version"]);
+  } catch {
+    fail("ripgrep (rg) is not available on PATH");
+  }
 }
 
 function credentialPresent() {

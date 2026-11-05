@@ -44,7 +44,8 @@
     "smoke:runtime": "node scripts/smoke-runtime.mjs",
     "smoke:contract": "node scripts/smoke-contract-runtime.mjs",
     "contract:generate": "node scripts/generate-agent-contract.mjs",
-    "contract:check": "node scripts/generate-agent-contract.mjs --check"
+    "contract:check": "node scripts/generate-agent-contract.mjs --check",
+    "smoke:setup": "node scripts/smoke-setup.mjs"
   },
   "engines": {
     "opencode": ">=2.2.0 <3",
