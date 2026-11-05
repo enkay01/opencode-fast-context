@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { searchRepository } from "../src/engine/search.ts";
+import { readCandidateExcerpt, type Candidate } from "../src/engine/discover.ts";
 import { formatForModel } from "../src/tool.ts";
 import { makeFixture, addSymlink } from "./fixture.ts";
+
+function candidateAt(path: string): Candidate {
+  return {
+    id: "c1",
+    path,
+    ranges: [{ start: 1, end: 1 }],
+    excerpt: "",
+    matchLines: [1],
+    lexicalScore: 1,
+  };
+}
 
 const REPO = {
   "src/retry.ts": [
@@ -77,7 +89,7 @@ test("never returns a secret file even when it matches the query", async () => {
   }
 });
 
-test("rejects a symlink that resolves outside the worktree", async () => {
+test("rejects a symlink that resolves outside the worktree", async (t) => {
   const outside = await makeFixture({
     "secret.ts": "export const retryDelay = () => 999\n",
   });
@@ -85,9 +97,44 @@ test("rejects a symlink that resolves outside the worktree", async () => {
     "src/retry.ts": "export const unrelated = 1\n",
   });
   try {
-    await addSymlink(fixture.root, "src/linked.ts", join(outside.root, "secret.ts"));
+    const linked = await addSymlink(fixture.root, "src/linked.ts", join(outside.root, "secret.ts"));
+    if (!linked) {
+      t.skip("symlink creation is not permitted on this platform");
+      return;
+    }
     const result = await searchRepository({ root: fixture.root, query: "Where is retryDelay computed?" });
     assert.ok(!result.results.some((item) => item.path === "src/linked.ts"));
+  } finally {
+    await fixture.cleanup();
+    await outside.cleanup();
+  }
+});
+
+test("re-reads evidence inside the worktree regardless of the platform separator", async () => {
+  const fixture = await makeFixture({
+    "src/retry.ts": "export const retryDelay = 1\n",
+  });
+  try {
+    const checked = await readCandidateExcerpt(fixture.root, candidateAt("src/retry.ts"), 1_000_000);
+    assert.ok(checked, "expected an in-worktree file to be readable");
+    assert.match(checked.text, /retryDelay/);
+    assert.equal(checked.digest.length, 64);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("re-reads reject a path that resolves outside the worktree", async () => {
+  const outside = await makeFixture({
+    "secret.ts": "export const retryDelay = 999\n",
+  });
+  const fixture = await makeFixture({
+    "src/retry.ts": "export const retryDelay = 1\n",
+  });
+  try {
+    const escaping = relative(fixture.root, join(outside.root, "secret.ts"));
+    const checked = await readCandidateExcerpt(fixture.root, candidateAt(escaping), 1_000_000);
+    assert.equal(checked, null);
   } finally {
     await fixture.cleanup();
     await outside.cleanup();

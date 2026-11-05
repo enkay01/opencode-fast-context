@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { runCli } from "./cli.mjs";
 
 const ALLOWED_TOP = new Set([
   "package.json",
@@ -35,12 +36,20 @@ const SECRET_PATTERNS = [
 const failures = [];
 
 function run(command, args, options = {}) {
-  return execFileSync(command, args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 128 * 1024 * 1024,
-    ...options,
-  });
+  return runCli(command, args, options);
+}
+
+function filesUnder(root) {
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      if (entry.isDirectory()) walk(absolute);
+      else if (entry.isFile()) files.push(absolute);
+    }
+  };
+  walk(root);
+  return files.sort();
 }
 
 function step(name, fn) {
@@ -127,19 +136,16 @@ try {
     }
     run("tar", ["-xzf", tarball, "-C", work]);
     const extracted = join(work, "package");
-    const files = run("find", [extracted, "-type", "f"]);
-    for (const file of files.split("\n").filter(Boolean)) {
-      const content = run("cat", [file]);
-      scan(content, relative(work, file));
+    for (const file of filesUnder(extracted)) {
+      scan(readFileSync(file, "utf8"), relative(work, file));
     }
   });
 
   step("packed files contain no absolute local paths", () => {
     const extracted = join(work, "package");
-    const files = run("find", [extracted, "-type", "f"]);
-    for (const file of files.split("\n").filter(Boolean)) {
+    for (const file of filesUnder(extracted)) {
       if (file.endsWith("package.json")) continue;
-      const content = run("cat", [file]);
+      const content = readFileSync(file, "utf8");
       assert(!ABSOLUTE_PATH.test(content), `absolute local path in ${relative(work, file)}`);
       assert(!content.includes("sourceMappingURL"), `source map reference in ${relative(work, file)}`);
     }

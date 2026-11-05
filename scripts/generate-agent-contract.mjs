@@ -35,7 +35,8 @@ async function load() {
 
 const expected = await load();
 if (process.argv.includes("--check")) {
-  const current = await readFile(OUTPUT, "utf8").catch(() => "");
+  // Checkouts on Windows may hold CRLF; compare the text, not its line endings.
+  const current = (await readFile(OUTPUT, "utf8").catch(() => "")).replace(/\r\n/g, "\n");
   if (current !== expected) {
     console.error("docs/agent-contract.md is out of date; run node scripts/generate-agent-contract.mjs");
     process.exit(1);

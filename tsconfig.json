@@ -9,6 +9,7 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "declaration": true,
+    "newLine": "lf",
     "sourceMap": false,
     "declarationMap": false,
     "outDir": "dist",

@@ -3,10 +3,11 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 
 const repo = resolve(".");
-const target = `file://${repo}`;
+const target = pathToFileURL(repo).href;
 
 test("setup is idempotent, preserves plugins, and never writes the credential", async () => {
   const root = await mkdtemp(join(tmpdir(), "fast-context-setup-"));
@@ -69,6 +70,27 @@ test("setup supports the global scope with XDG_CONFIG_HOME", async () => {
     assert.ok(config.includes(target));
   } finally {
     await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("setup defaults to this checkout when no package is given", async () => {
+  const configHome = await mkdtemp(join(tmpdir(), "fast-context-default-"));
+  const env = {
+    ...process.env,
+    XDG_CONFIG_HOME: configHome,
+    FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",
+    TYPESAFE_API_KEY: "dummy-setup-key",
+  };
+  try {
+    execFileSync("node", [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "global"], {
+      cwd: repo,
+      env,
+      encoding: "utf8",
+    });
+    const config = await readFile(join(configHome, "opencode", "opencode.json"), "utf8");
+    assert.ok(config.includes(target), `expected ${target} in ${config}`);
+  } finally {
+    await rm(configHome, { recursive: true, force: true });
   }
 });
 
@@ -231,7 +253,7 @@ test("setup replaces a different local checkout with the requested checkout", as
   await mkdir(oldCheckout, { recursive: true });
   await writeFile(join(oldCheckout, "package.json"), JSON.stringify({ name: "opencode-fast-context" }));
   const config = join(root, "opencode.json");
-  await writeFile(config, JSON.stringify({ plugins: [`file://${oldCheckout}`] }));
+  await writeFile(config, JSON.stringify({ plugins: [pathToFileURL(oldCheckout).href] }));
   const env = {
     ...process.env,
     FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",

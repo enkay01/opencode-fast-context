@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { launch } from "./cli.mjs";
 
 const REQUIRED = [2, 2, 5];
 
@@ -47,7 +48,11 @@ async function main() {
   const repo = resolve(process.cwd());
   const home = await mkdtemp(join(tmpdir(), "fast-context-runtime-"));
   try {
-    const check = spawnSync("opencode", ["--version"], { encoding: "utf8" });
+    const versionPlan = launch("opencode", ["--version"]);
+    const check = spawnSync(versionPlan.file, versionPlan.args, {
+      encoding: "utf8",
+      ...versionPlan.options,
+    });
     if (check.status !== 0) {
       throw new Error("opencode is not available; install OpenCode 2 before running this smoke");
     }
@@ -64,7 +69,7 @@ async function main() {
       join(configDir, "opencode.json"),
       `${JSON.stringify({
         $schema: "https://opencode.ai/config.json",
-        plugins: [`file://${repo}`],
+        plugins: [pathToFileURL(repo).href],
       })}\n`,
     );
 
@@ -77,19 +82,20 @@ async function main() {
       XDG_CACHE_HOME: join(home, ".cache"),
     };
     delete env.TYPESAFE_API_KEY;
+    const runPlan = launch("opencode", [
+      "run",
+      "--standalone",
+      "--model",
+      "invalid/nonexistent",
+      "--print-logs",
+      "--log-level",
+      "info",
+      "runtime smoke",
+    ]);
     const run = spawnSync(
-      "opencode",
-      [
-        "run",
-        "--standalone",
-        "--model",
-        "invalid/nonexistent",
-        "--print-logs",
-        "--log-level",
-        "info",
-        "runtime smoke",
-      ],
-      { encoding: "utf8", env, timeout: 120_000 },
+      runPlan.file,
+      runPlan.args,
+      { encoding: "utf8", env, timeout: 120_000, ...runPlan.options },
     );
     const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
     assertRuntimeLoad(output, repo);
