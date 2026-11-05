@@ -89,7 +89,7 @@ test("never returns a secret file even when it matches the query", async () => {
   }
 });
 
-test("rejects a symlink that resolves outside the worktree", async () => {
+test("rejects a symlink that resolves outside the worktree", async (t) => {
   const outside = await makeFixture({
     "secret.ts": "export const retryDelay = () => 999\n",
   });
@@ -97,7 +97,11 @@ test("rejects a symlink that resolves outside the worktree", async () => {
     "src/retry.ts": "export const unrelated = 1\n",
   });
   try {
-    await addSymlink(fixture.root, "src/linked.ts", join(outside.root, "secret.ts"));
+    const linked = await addSymlink(fixture.root, "src/linked.ts", join(outside.root, "secret.ts"));
+    if (!linked) {
+      t.skip("symlink creation is not permitted on this platform");
+      return;
+    }
     const result = await searchRepository({ root: fixture.root, query: "Where is retryDelay computed?" });
     assert.ok(!result.results.some((item) => item.path === "src/linked.ts"));
   } finally {

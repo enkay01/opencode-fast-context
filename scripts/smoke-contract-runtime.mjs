@@ -4,7 +4,9 @@ import { createServer } from "node:http";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import { launch } from "./cli.mjs";
 import { AUTO_INVOKE_GUIDANCE } from "../dist/guidance.js";
 import { TOOL_DESCRIPTION } from "../dist/tool.js";
 
@@ -55,7 +57,11 @@ async function runOpenCode(autoInvoke) {
       {
         $schema: "https://opencode.ai/config.json",
         model: "mock/mock-model",
-        plugins: [autoInvoke === "suggest" ? `file://${repo}` : { package: `file://${repo}`, options: { autoInvoke } }],
+        plugins: [
+          autoInvoke === "suggest"
+            ? pathToFileURL(repo).href
+            : { package: pathToFileURL(repo).href, options: { autoInvoke } },
+        ],
         provider: {
           mock: {
             npm: "@ai-sdk/openai-compatible",
@@ -86,11 +92,15 @@ async function runOpenCode(autoInvoke) {
   };
   delete env.TYPESAFE_API_KEY;
   const result = await new Promise((resolvePromise) => {
-    const child = spawn(
+    const plan = launch(
       "opencode",
       ["run", "--standalone", "--model", "mock/mock-model", "--auto", "contract smoke"],
-      { env, stdio: ["ignore", "pipe", "pipe"] },
     );
+    const child = spawn(plan.file, plan.args, {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      ...plan.options,
+    });
     let output = "";
     child.stdout.on("data", (chunk) => (output += chunk));
     child.stderr.on("data", (chunk) => (output += chunk));
@@ -127,7 +137,8 @@ try {
   assert.ok(!offSerialized.includes(AUTO_INVOKE_GUIDANCE), "guidance should be absent with autoInvoke off");
 
   const version = await new Promise((resolvePromise) => {
-    const child = spawn("opencode", ["--version"], { stdio: ["ignore", "pipe", "ignore"] });
+    const plan = launch("opencode", ["--version"]);
+    const child = spawn(plan.file, plan.args, { stdio: ["ignore", "pipe", "ignore"], ...plan.options });
     let output = "";
     child.stdout.on("data", (chunk) => (output += chunk));
     child.on("close", () => resolvePromise(output.trim()));

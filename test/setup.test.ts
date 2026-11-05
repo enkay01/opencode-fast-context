@@ -73,6 +73,27 @@ test("setup supports the global scope with XDG_CONFIG_HOME", async () => {
   }
 });
 
+test("setup defaults to this checkout when no package is given", async () => {
+  const configHome = await mkdtemp(join(tmpdir(), "fast-context-default-"));
+  const env = {
+    ...process.env,
+    XDG_CONFIG_HOME: configHome,
+    FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",
+    TYPESAFE_API_KEY: "dummy-setup-key",
+  };
+  try {
+    execFileSync("node", [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "global"], {
+      cwd: repo,
+      env,
+      encoding: "utf8",
+    });
+    const config = await readFile(join(configHome, "opencode", "opencode.json"), "utf8");
+    assert.ok(config.includes(target), `expected ${target} in ${config}`);
+  } finally {
+    await rm(configHome, { recursive: true, force: true });
+  }
+});
+
 test("setup ignores comments and unrelated fast-context text", async () => {
   const root = await mkdtemp(join(tmpdir(), "fast-context-setup-"));
   const config = join(root, "opencode.jsonc");

@@ -20,6 +20,13 @@ export async function makeFixture(files: Record<string, string>): Promise<Fixtur
   };
 }
 
-export async function addSymlink(root: string, path: string, target: string): Promise<void> {
-  await symlink(target, join(root, path));
+export async function addSymlink(root: string, path: string, target: string): Promise<boolean> {
+  try {
+    await symlink(target, join(root, path));
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EACCES" || code === "ENOTSUP") return false;
+    throw error;
+  }
 }
