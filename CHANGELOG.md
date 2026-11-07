@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0
+
+Secure TypeSafe credential onboarding.
+
+- New masked prompt in the OpenCode TUI. The key is verified live against TypeSafe before it is saved and is stored only in OpenCode's integration credential store.
+- Credential order is `TYPESAFE_API_KEY`, then the integration store, then the prompt. A rejected environment key never deletes or replaces a stored key.
+- New commands: `/fast-context auth` stores or replaces the key, `/fast-context auth status` shows the credential source without printing it, and `/fast-context auth revoke` removes stored records after confirmation.
+- Headless runs, background jobs, and subagent sessions return `fallback_required` immediately instead of waiting on a TUI prompt.
+- A rejected stored key is removed before the replacement prompt. A verified replacement prunes older records, and a headless rejection is queued for the next interactive client.
+- Pending prompts settle on detach, disposal, cancellation, or a 120-second timeout.
+- Masked input is cursor-aware: middle inserts, middle deletes, selection replaces, and pastes keep the intended key.
+- The packed plugin declares its TUI runtime dependencies, and `setup:opencode` no longer requires `TYPESAFE_API_KEY`.
+
 ## 0.1.1
 
 Locator contract update.

@@ -34,7 +34,7 @@ It does not build an index, write to the repository, run a background process, o
 ### From GitHub (recommended)
 
 ```bash
-opencode plugin add github:enkay01/opencode-fast-context#v0.1.0
+opencode plugin add github:enkay01/opencode-fast-context#v0.2.0
 opencode plugin list
 ```
 
@@ -43,7 +43,7 @@ This installs the tagged release. npm publication is intentionally not used for 
 ### From a local checkout
 
 ```bash
-git clone --branch v0.1.0 https://github.com/enkay01/opencode-fast-context
+git clone --branch v0.2.0 https://github.com/enkay01/opencode-fast-context
 cd opencode-fast-context
 npm ci
 npm run verify:release
@@ -103,7 +103,7 @@ Headless runs (`opencode run`, background jobs, subagents, or sessions the TUI i
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["opencode-fast-context@0.1.0"]
+  "plugins": ["opencode-fast-context@0.2.0"]
 }
 ```
 
@@ -113,7 +113,7 @@ To set an option, use the object form:
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    { "package": "opencode-fast-context@0.1.0", "options": { "autoInvoke": "off" } }
+    { "package": "opencode-fast-context@0.2.0", "options": { "autoInvoke": "off" } }
   ]
 }
 ```
