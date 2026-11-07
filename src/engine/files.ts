@@ -9,17 +9,36 @@ export interface ExecResult {
   timedOut: boolean;
 }
 
+export interface ExecOptions {
+  cwd: string;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  maxBytes?: number;
+}
+
+export type ExecFn = (command: string, args: string[], options: ExecOptions) => Promise<ExecResult>;
+
+export function spawnOptions(options: { cwd: string; signal?: AbortSignal }): {
+  cwd: string;
+  stdio: ["ignore", "pipe", "pipe"];
+  windowsHide: true;
+  signal?: AbortSignal;
+} {
+  return {
+    cwd: options.cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
+}
+
 export async function exec(
   command: string,
   args: string[],
-  options: { cwd: string; timeoutMs: number; signal?: AbortSignal; maxBytes?: number },
+  options: ExecOptions,
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      signal: options.signal,
-    });
+    const child = spawn(command, args, spawnOptions(options));
 
     const chunks: Buffer[] = [];
     const errors: Buffer[] = [];

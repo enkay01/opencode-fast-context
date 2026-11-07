@@ -180,3 +180,64 @@ test("a discovery timeout reports fallback_required rather than no_match", async
     await fixture.cleanup();
   }
 });
+
+test("discover spawns at most one rg process per wave even for multi-token queries", async () => {
+  const { discover } = await import("../src/engine/discover.ts");
+  const { DEFAULT_LIMITS } = await import("../src/types.ts");
+  const { exec, spawnOptions } = await import("../src/engine/files.ts");
+  const fixture = await makeFixture(REPO);
+  try {
+    const calls: { command: string; args: string[] }[] = [];
+    const result = await discover(
+      fixture.root,
+      "verify fingerprint access walk register provenance diff truncation check command in retryDelay",
+      DEFAULT_LIMITS,
+      {
+        execImpl: async (command, args, opts) => {
+          calls.push({ command, args });
+          return exec(command, args, opts);
+        },
+      },
+    );
+    assert.ok(result.candidates.length > 0, "expected candidates from combined rg pass");
+    assert.equal(calls.length, result.waves, "expected exactly 1 rg process per wave");
+    assert.ok(calls.length <= DEFAULT_LIMITS.waves);
+    assert.equal(spawnOptions({ cwd: fixture.root }).windowsHide, true);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("default limits apply a 30s deadline to Jev ranking only and leave local discovery unbounded", async () => {
+  const { DEFAULT_LIMITS } = await import("../src/types.ts");
+  assert.equal(DEFAULT_LIMITS.deadlineMs, undefined);
+  assert.equal(DEFAULT_LIMITS.providerDeadlineMs, 30_000);
+
+  const fixture = await makeFixture(REPO);
+  try {
+    let seenDeadline = 0;
+    const before = Date.now();
+    const result = await searchRepository({
+      root: fixture.root,
+      query: "Where is retryDelay computed?",
+      provider: {
+        id: "jev",
+        model: "jev-latest",
+        async score(_query, candidates, options) {
+          seenDeadline = options.deadline;
+          return {
+            scores: Object.fromEntries(candidates.map((c) => [c.id, 0.9])),
+            usage: null,
+            model: "jev-latest",
+            skipped: 0,
+          };
+        },
+      },
+    });
+    assert.equal(result.status, "complete");
+    const delta = seenDeadline - before;
+    assert.ok(delta >= 29_000 && delta <= 32_000, `expected ~30s provider deadline, got ${delta}ms`);
+  } finally {
+    await fixture.cleanup();
+  }
+});

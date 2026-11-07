@@ -14,12 +14,12 @@ function quoteWin(arg) {
  * the whole command line quoted for `/s /c`.
  */
 export function launch(command, args) {
-  if (!WINDOWS) return { file: command, args, options: {} };
+  if (!WINDOWS) return { file: command, args, options: { windowsHide: true } };
   const line = [command, ...args].map(quoteWin).join(" ");
   return {
     file: process.env.ComSpec ?? "cmd.exe",
     args: ["/d", "/s", "/c", `"${line}"`],
-    options: { windowsVerbatimArguments: true },
+    options: { windowsVerbatimArguments: true, windowsHide: true },
   };
 }
 

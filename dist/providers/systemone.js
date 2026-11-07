@@ -135,8 +135,9 @@ async function scoreCandidates(providerId, prompt, model, endpoint, headers, que
             return;
         }
         const remaining = options.deadline - Date.now();
+        const requestTimeout = options.requestTimeoutMs ?? (providerId === "jev" ? 30_000 : 8000);
         try {
-            const result = await callSystemOne(providerId, endpoint(index), headers, model, query, candidate, Math.min(remaining, 8000), options.signal, fetchImplRef.current, prompt);
+            const result = await callSystemOne(providerId, endpoint(index), headers, model, query, candidate, Math.min(remaining, requestTimeout), options.signal, fetchImplRef.current, prompt);
             scores[candidate.id] = result.noul;
             actualModel = result.model;
             if (result.usage) {
@@ -171,7 +172,7 @@ export function createJevProvider(config) {
         id: "jev",
         model,
         choose(query, options, opts) {
-            return callChoice("jev", endpoint, { authorization: `Bearer ${config.apiKey}` }, model, query, options, Math.min(opts.deadline - Date.now(), 8000), opts.signal);
+            return callChoice("jev", endpoint, { authorization: `Bearer ${config.apiKey}` }, model, query, options, Math.min(opts.deadline - Date.now(), 30_000), opts.signal);
         },
         score(query, candidates, options) {
             fetchImplRef.current = config.fetchImpl ?? fetch;

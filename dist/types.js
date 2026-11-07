@@ -6,7 +6,7 @@ export const DEFAULT_LIMITS = {
     windowLines: 28,
     maxFiles: 10,
     maxLines: 200,
-    deadlineMs: 10_000,
+    providerDeadlineMs: 30_000,
     maxFileBytes: 2_000_000,
     minDecision: 0.15,
     ablationStage: "climb3",

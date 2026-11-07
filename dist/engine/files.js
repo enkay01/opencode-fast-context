@@ -1,13 +1,17 @@
 import { spawn } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
+export function spawnOptions(options) {
+    return {
+        cwd: options.cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        ...(options.signal ? { signal: options.signal } : {}),
+    };
+}
 export async function exec(command, args, options) {
     return new Promise((resolve) => {
-        const child = spawn(command, args, {
-            cwd: options.cwd,
-            stdio: ["ignore", "pipe", "pipe"],
-            signal: options.signal,
-        });
+        const child = spawn(command, args, spawnOptions(options));
         const chunks = [];
         const errors = [];
         let size = 0;

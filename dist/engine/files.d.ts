@@ -4,12 +4,23 @@ export interface ExecResult {
     stderr: string;
     timedOut: boolean;
 }
-export declare function exec(command: string, args: string[], options: {
+export interface ExecOptions {
     cwd: string;
     timeoutMs: number;
     signal?: AbortSignal;
     maxBytes?: number;
-}): Promise<ExecResult>;
+}
+export type ExecFn = (command: string, args: string[], options: ExecOptions) => Promise<ExecResult>;
+export declare function spawnOptions(options: {
+    cwd: string;
+    signal?: AbortSignal;
+}): {
+    cwd: string;
+    stdio: ["ignore", "pipe", "pipe"];
+    windowsHide: true;
+    signal?: AbortSignal;
+};
+export declare function exec(command: string, args: string[], options: ExecOptions): Promise<ExecResult>;
 export declare function isExcluded(relativePath: string): boolean;
 export declare function toPosix(relativePath: string): string;
 export declare function listFiles(root: string, timeoutMs: number): Promise<string[]>;

@@ -86,8 +86,10 @@ export interface Limits {
     maxFiles: number;
     /** Maximum total evidence lines returned. */
     maxLines: number;
-    /** Hard deadline in milliseconds. */
-    deadlineMs: number;
+    /** Optional total search deadline in milliseconds; when undefined, local discovery has no global timer. */
+    deadlineMs?: number;
+    /** Deadline in milliseconds for Jev/provider requests only. */
+    providerDeadlineMs: number;
     /** Largest file the engine will read, in bytes. */
     maxFileBytes: number;
     /** Below this top decision score, a provider-ranked search returns no_match. */

@@ -31,7 +31,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
     ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
   };
   const stage = limits.ablationStage ?? "climb3";
-  const deadline = started + limits.deadlineMs;
+  const deadline = limits.deadlineMs !== undefined ? started + limits.deadlineMs : undefined;
   const query = options.query.trim();
   const diagnostics = {
     poolFiles: [] as string[],
@@ -81,7 +81,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   const discoveryStart = Date.now();
   const discoverFn = options.discoverImpl ?? discover;
   const discovery = await discoverFn(options.root, query, limits, {
-    deadline,
+    ...(deadline !== undefined ? { deadline } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });
   const discoveryMs = Date.now() - discoveryStart;
@@ -118,11 +118,12 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   if (options.provider) {
     options.onStage?.("ranking");
     const rankingStart = Date.now();
+    const providerDeadline = Date.now() + Math.max(1, limits.providerDeadlineMs);
     const providerLimit = Math.min(
       limits.rankedCandidates,
       options.provider.maxCandidates ?? limits.rankedCandidates,
     );
-    const hint = await chooseDirectory(options.provider, query, lexicalPool, deadline, options.signal);
+    const hint = await chooseDirectory(options.provider, query, lexicalPool, providerDeadline, options.signal);
     const shortlist = providerShortlist(lexicalPool, providerLimit, hint, stage === "climb3" ? 2 : 1);
     const scoredCandidates = await Promise.all(
       shortlist.map(async (candidate) => ({
@@ -172,7 +173,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
           code,
         })),
         {
-          deadline,
+          deadline: providerDeadline,
           concurrency: limits.concurrency,
           ...(options.signal ? { signal: options.signal } : {}),
         },
