@@ -18,6 +18,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js",
+      "default": "./dist/tui.js"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
@@ -56,7 +61,10 @@
   },
   "devDependencies": {
     "@opencode/plugin": "2.2.5",
+    "@opentui/core": "0.8.3",
+    "@opentui/solid": "0.8.3",
     "@types/node": "^24.0.0",
+    "solid-js": "^1.9.12",
     "typescript": "^5.9.0"
   },
   "keywords": [

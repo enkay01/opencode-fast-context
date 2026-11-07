@@ -27,7 +27,7 @@ It does not build an index, write to the repository, run a background process, o
 - OpenCode 2 (`>=2.2.0 <3`); tested with 2.2.5.
 - Node 22.18 or newer for local setup and development.
 - `ripgrep` (`rg`) on `PATH`.
-- A TypeSafe API key in `TYPESAFE_API_KEY`.
+- A TypeSafe API key, supplied either through `TYPESAFE_API_KEY` or through OpenCode's credential store (see [Credential](#credential)).
 
 ## Install
 
@@ -50,7 +50,7 @@ npm run verify:release
 npm run setup:opencode -- --scope global
 ```
 
-`setup:opencode` adds the absolute checkout path to the global OpenCode configuration, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope project` for a project-local install. Add `--allow-missing-credential` to install before the API key is provisioned; Fast Context returns `fallback_required` until the key is set.
+`setup:opencode` adds the absolute checkout path to the global OpenCode configuration, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope project` for a project-local install. Add `--allow-missing-credential` to install before the API key is provisioned; Fast Context returns `fallback_required` until a key is configured.
 
 ### One-shot instruction for an agent
 
@@ -60,11 +60,17 @@ The root [AGENTS.md](AGENTS.md) tells an assigned agent to run:
 npm ci && npm run verify:release && npm run setup:opencode -- --scope project
 ```
 
-The agent must stop if `TYPESAFE_API_KEY` is absent and ask the user to provision it through their secret manager. It must never request the value in chat or write it to a file.
+The agent must never request the key value in chat or write it to a file. If `TYPESAFE_API_KEY` is absent, the plugin prompts for the key inside the OpenCode TUI on the first search instead.
 
 ## Credential
 
-Fast Context reads only `TYPESAFE_API_KEY` from the environment of the OpenCode server process. Start OpenCode from a shell or service where your secret manager has exported it:
+Fast Context resolves the TypeSafe key in this order:
+
+1. `TYPESAFE_API_KEY` in the environment of the OpenCode server process;
+2. the OpenCode integration credential store under the `fast-context` integration;
+3. an interactive masked prompt in the OpenCode TUI when a search runs without either.
+
+To use the environment variable, start OpenCode from a shell or service where your secret manager has exported it:
 
 ```bash
 # Example only; do not commit this line.
@@ -72,7 +78,25 @@ export TYPESAFE_API_KEY="$(your-secret-manager read typesafe)"
 opencode
 ```
 
-Do not put the key in `opencode.json`, `opencode.jsonc`, plugin options, command arguments, or a repository file. The plugin does not accept it through any of those. If the key is missing, the tool returns a configuration failure and ordinary search remains available. It never silently substitutes local ranking.
+The environment key always wins. A stored credential is only consulted when no environment key exists, and a rejected environment key never deletes or replaces a stored one.
+
+### Interactive onboarding
+
+When an interactive OpenCode session runs `fast_context_search` with no usable key, the plugin emits a TUI prompt. The input is masked, the key is verified live against TypeSafe before anything is stored, and a rejected key shows an inline error without being saved. Dismissing the prompt returns `fallback_required` and the search continues with ordinary tools.
+
+A stored key that TypeSafe later rejects (HTTP 401 or 403) is treated as expired: the stale record is removed and the replacement prompt appears on the next search.
+
+The key is persisted only through OpenCode's native integration credential store (SQLite under the OpenCode data directory). It is never written to `opencode.json`, `opencode.jsonc`, plugin options, command arguments, `.env` files, repository files, or logs.
+
+### Lifecycle commands
+
+In the OpenCode TUI:
+
+- `/fast-context auth` stores or replaces the key through the same masked, verified prompt;
+- `/fast-context auth status` shows which credential sources are configured, without exposing values;
+- `/fast-context auth revoke` removes every Fast Context record from the credential store after confirmation. `TYPESAFE_API_KEY` is not affected.
+
+Headless runs (`opencode run`, background jobs, or sessions with no attached TUI) never block on a prompt. They return `fallback_required` immediately when no credential resolves.
 
 ## Configuration
 
@@ -140,7 +164,8 @@ Use `--scope project` if it was installed locally. Restart OpenCode after changi
 
 - **Tool missing after install**: restart the background service with `opencode service restart`, then start a new session. Existing sessions keep their old tool catalog. `opencode plugin list` does not show local-path plugins; use `opencode api GET /api/plugin` instead.
 - **Key works in a terminal but not the app**: the `opencode` shell wrapper only affects processes launched from that shell. The background service and a Dock-launched app do not inherit it. Restart the service from the wrapped shell, or launch OpenCode from that terminal.
-- **`TYPESAFE_API_KEY is not set`**: export the key in the environment that launches OpenCode. Do not add it to configuration.
+- **`TYPESAFE_API_KEY is not set`**: export the key in the environment that launches OpenCode, or run `/fast-context auth` in the TUI to store one. Do not add it to configuration.
+- **Prompt never appears**: the TUI part of the plugin must be loaded. Check `opencode plugin list`, restart the TUI, and confirm the session is interactive. Headless runs intentionally skip the prompt.
 - **Frequent `fallback_required`**: check provider status and the configured model. Ordinary search is unaffected.
 - **`no_match` on a real target**: the searched candidate pool did not contain a passing match. Try more specific identifiers or inspect the relevant directories.
 - **No guidance added**: check that `autoInvoke` is not `"off"` and that your OpenCode version supports session context hooks.

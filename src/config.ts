@@ -15,6 +15,8 @@ export interface ProviderResolution {
   provider: DecisionProvider | null;
   /** Set when Jev cannot be configured. Never contains credential material. */
   error: string | null;
+  /** Which credential source supplied the key, when one did. */
+  source?: "env" | "store";
 }
 
 /** Internal test seam; never exposed through plugin options. */
@@ -37,8 +39,9 @@ export function resolveProvider(
     return {
       provider: null,
       error:
-        "TYPESAFE_API_KEY is not set. Provide it through your shell or secret manager before starting " +
-        "OpenCode. Fast Context does not fall back to local ranking.",
+        "TYPESAFE_API_KEY is not set and no Fast Context credential is stored in OpenCode. " +
+        "Set TYPESAFE_API_KEY in the environment, or run /fast-context auth in an interactive " +
+        "OpenCode session to store a key. Fast Context does not fall back to local ranking.",
     };
   }
 
@@ -49,5 +52,35 @@ export function resolveProvider(
       ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}),
     }),
     error: null,
+    source: "env",
+  };
+}
+
+/**
+ * Resolves the provider asynchronously with the full credential precedence:
+ * `process.env.TYPESAFE_API_KEY` first, then the OpenCode integration
+ * credential store, then nothing. The environment key always wins; a stored
+ * key is only consulted when no environment key exists, so an explicit env
+ * override can never be shadowed or deleted by store state.
+ */
+export async function resolveProviderAsync(
+  env: NodeJS.ProcessEnv = process.env,
+  overrides: ProviderOverrides = {},
+  resolveStoredKey?: () => Promise<string | undefined>,
+): Promise<ProviderResolution> {
+  const fromEnv = resolveProvider(env, overrides);
+  if (fromEnv.provider) return fromEnv;
+
+  const storedKey = resolveStoredKey ? await resolveStoredKey() : undefined;
+  if (!storedKey) return fromEnv;
+
+  return {
+    provider: createJevProvider({
+      apiKey: storedKey,
+      ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
+      ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}),
+    }),
+    error: null,
+    source: "store",
   };
 }
