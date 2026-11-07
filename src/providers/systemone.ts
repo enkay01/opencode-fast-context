@@ -210,6 +210,7 @@ async function scoreCandidates(
       return;
     }
     const remaining = options.deadline - Date.now();
+    const requestTimeout = options.requestTimeoutMs ?? (providerId === "jev" ? 30_000 : 8000);
     try {
       const result = await callSystemOne(
         providerId,
@@ -218,7 +219,7 @@ async function scoreCandidates(
         model,
         query,
         candidate,
-        Math.min(remaining, 8000),
+        Math.min(remaining, requestTimeout),
         options.signal,
         fetchImplRef.current,
         prompt,
@@ -269,7 +270,7 @@ export function createJevProvider(config: JevConfig): DecisionProvider {
     id: "jev",
     model,
     choose(query, options, opts) {
-      return callChoice("jev", endpoint, { authorization: `Bearer ${config.apiKey}` }, model, query, options, Math.min(opts.deadline - Date.now(), 8000), opts.signal);
+      return callChoice("jev", endpoint, { authorization: `Bearer ${config.apiKey}` }, model, query, options, Math.min(opts.deadline - Date.now(), 30_000), opts.signal);
     },
     score(query, candidates, options) {
       fetchImplRef.current = config.fetchImpl ?? fetch;

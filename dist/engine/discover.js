@@ -5,9 +5,12 @@ import { exec, isExcluded, toPosix } from "./files.js";
 import { extractConcepts, identifiersIn, splitIdentifier, stemToken, tokenize, tokenizeV0, } from "./tokenize.js";
 const DEFINITION = /\b(function|class|interface|type|const|let|var|def|fn|struct|enum|impl|export|Effect\.fn)\b/i;
 const CONTEXT_LINES = 4;
-export async function discover(root, query, limits, options) {
+export async function discover(root, query, limits, options = {}) {
     const stage = limits.ablationStage ?? "climb3";
-    const remaining = () => Math.max(1, options.deadline - Date.now());
+    const runExec = options.execImpl ?? exec;
+    const deadline = options.deadline;
+    const isExpired = () => deadline !== undefined && Date.now() >= deadline;
+    const rgTimeout = () => deadline !== undefined ? Math.min(Math.max(1, deadline - Date.now()), 5000) : 5000;
     const started = Date.now();
     const repoName = String(root).split("/").filter(Boolean).at(-1)?.toLowerCase() ?? "";
     const rawTokens = stage === "v0" ? tokenizeV0(query) : tokenize(query);
@@ -23,31 +26,57 @@ export async function discover(root, query, limits, options) {
     let totalUnionFiles = 0;
     let waves = 0;
     let timedOut = false;
-    const listFilesFor = async (term) => {
-        const result = await exec("rg", ["-l", "--no-messages", "-i", "-e", wordPattern(term)], {
+    const collect = async (terms, weightOverride) => {
+        if (terms.length === 0)
+            return;
+        waves += 1;
+        for (const term of terms) {
+            if (!fileSets.has(term))
+                fileSets.set(term, new Set());
+        }
+        const lineResult = await runExec("rg", [
+            "-n",
+            "-H",
+            "--no-heading",
+            "--no-messages",
+            "-i",
+            ...terms.flatMap((term) => ["-e", wordPattern(term)]),
+        ], {
             cwd: root,
-            timeoutMs: Math.min(remaining(), 5000),
+            timeoutMs: rgTimeout(),
+            maxBytes: 8_000_000,
             ...(options.signal ? { signal: options.signal } : {}),
         });
-        if (result.timedOut)
+        if (lineResult.timedOut)
             timedOut = true;
-        return new Set(result.stdout
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .map(toPosix)
-            .filter((file) => !isExcluded(file)));
-    };
-    const collect = async (terms, weightOverride) => {
-        waves += 1;
-        const sets = await Promise.all(terms.map((term) => listFilesFor(term)));
-        for (let index = 0; index < terms.length; index += 1) {
-            fileSets.set(terms[index], sets[index]);
-        }
+        const termMatchers = terms.map((term) => ({
+            term,
+            regex: new RegExp(wordPattern(term), "i"),
+        }));
+        const rawLines = new Map();
         const union = new Set();
-        for (const set of sets)
-            for (const file of set)
-                union.add(file);
+        for (const raw of lineResult.stdout.split("\n")) {
+            const parsed = /^(.+?):(\d+):(.*)$/.exec(raw);
+            if (!parsed)
+                continue;
+            const path = toPosix(parsed[1]);
+            const lineNumber = Number(parsed[2]);
+            const text = (parsed[3] ?? "").trim();
+            if (!path || !lineNumber || isExcluded(path))
+                continue;
+            union.add(path);
+            for (const { term, regex } of termMatchers) {
+                if (regex.test(text))
+                    fileSets.get(term)?.add(path);
+            }
+            let fileLines = rawLines.get(path);
+            if (!fileLines) {
+                fileLines = new Map();
+                rawLines.set(path, fileLines);
+            }
+            if (!fileLines.has(lineNumber))
+                fileLines.set(lineNumber, text);
+        }
         if (union.size === 0)
             return;
         totalUnionFiles = Math.max(totalUnionFiles, union.size);
@@ -95,45 +124,20 @@ export async function discover(root, query, limits, options) {
             weightedPathScore(tokens, weights, a, concepts))
             .slice(0, 60);
         shortlist.push(...byName);
-        for (let offset = 0; offset < shortlist.length; offset += 100) {
-            const chunk = shortlist.slice(offset, offset + 100);
-            const lineResult = await exec("rg", [
-                "-n",
-                "-H",
-                "--no-heading",
-                "--no-messages",
-                "-i",
-                ...terms.flatMap((term) => ["-e", wordPattern(term)]),
-                "--",
-                ...chunk,
-            ], {
-                cwd: root,
-                timeoutMs: Math.min(remaining(), 5000),
-                maxBytes: 8_000_000,
-                ...(options.signal ? { signal: options.signal } : {}),
-            });
-            if (lineResult.timedOut)
-                timedOut = true;
-            for (const raw of lineResult.stdout.split("\n")) {
-                const parsed = /^(.+?):(\d+):(.*)$/.exec(raw);
-                if (!parsed)
-                    continue;
-                const path = toPosix(parsed[1]);
-                const lineNumber = Number(parsed[2]);
-                const text = (parsed[3] ?? "").trim();
-                if (!path || !lineNumber)
-                    continue;
-                const entry = matches.get(path) ?? { path, lines: new Map() };
+        for (const path of shortlist) {
+            const fileLines = rawLines.get(path);
+            if (!fileLines)
+                continue;
+            const entry = matches.get(path) ?? { path, lines: new Map() };
+            for (const [lineNumber, text] of fileLines) {
                 if (!entry.lines.has(lineNumber))
                     entry.lines.set(lineNumber, text);
-                matches.set(path, entry);
             }
-            if (Date.now() >= options.deadline || options.signal?.aborted)
-                break;
+            matches.set(path, entry);
         }
     };
     await collect(tokens, null);
-    if (timedOut || options.signal?.aborted || Date.now() >= options.deadline) {
+    if (timedOut || options.signal?.aborted || isExpired()) {
         return { candidates: [], matchedFiles: matches.size, fileCount: matches.size, waves, timedOut: true };
     }
     const idfDenominator = () => stage === "v0" || stage === "climb1"
@@ -142,9 +146,9 @@ export async function discover(root, query, limits, options) {
     let weights = weightsFor(tokens, fileSets, idfDenominator());
     let candidates = await buildCandidates(root, matches, tokens, weights, limits, concepts);
     for (let wave = 1; wave < limits.waves; wave += 1) {
-        if (Date.now() >= options.deadline || options.signal?.aborted)
+        if (isExpired() || options.signal?.aborted)
             break;
-        if (Date.now() - started > limits.deadlineMs * 0.35)
+        if (limits.deadlineMs !== undefined && Date.now() - started > limits.deadlineMs * 0.35)
             break;
         if (matches.size > 36)
             break;

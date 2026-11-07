@@ -17,6 +17,8 @@ export interface ScoreOptions {
   signal?: AbortSignal;
   deadline: number;
   concurrency: number;
+  /** Per-request timeout ceiling in milliseconds; defaults to the remaining provider deadline (30_000ms for Jev). */
+  requestTimeoutMs?: number;
 }
 
 export interface ChooseOption {
