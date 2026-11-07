@@ -47,3 +47,41 @@ test("empty input stays empty", () => {
   assert.equal(state.secret, "");
   assert.equal(state.shown, "");
 });
+
+test("a character inserted in the middle keeps both sides of the secret", () => {
+  const state = applyMaskDelta({ secret: "abcd", shown: "••••", cursor: 0 }, "••x••");
+  assert.equal(state.secret, "abxcd");
+  assert.equal(state.shown, SECRET_MASK.repeat(5));
+  assert.equal(state.cursor, 3);
+});
+
+test("a character deleted in the middle removes only that character", () => {
+  const state = applyMaskDelta({ secret: "abcd", shown: "••••", cursor: 0 }, "•••", 1);
+  assert.equal(state.secret, "acd");
+  assert.equal(state.cursor, 1);
+});
+
+test("a trailing deletion removes the last character", () => {
+  const state = applyMaskDelta({ secret: "abcd", shown: "••••", cursor: 0 }, "•••", 3);
+  assert.equal(state.secret, "abc");
+  assert.equal(state.cursor, 3);
+});
+
+test("a selection replaced in the middle keeps the surrounding secret", () => {
+  const state = applyMaskDelta({ secret: "abcd", shown: "••••", cursor: 0 }, "•x•");
+  assert.equal(state.secret, "axd");
+  assert.equal(state.cursor, 2);
+});
+
+test("text pasted at the caret is inserted at that position", () => {
+  const state = applyMaskDelta({ secret: "abcd", shown: "••••", cursor: 0 }, "key••••");
+  assert.equal(state.secret, "keyabcd");
+  assert.equal(state.cursor, 3);
+});
+
+test("the caret lands after the inserted text and never inside a mask run", () => {
+  let state = type("abcd");
+  state = applyMaskDelta(state, "••x••");
+  assert.equal(state.cursor, 3);
+  assert.ok(state.cursor <= state.shown.length);
+});

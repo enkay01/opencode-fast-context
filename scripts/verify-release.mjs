@@ -93,6 +93,25 @@ const ABSOLUTE_PATH =
 step("typecheck", () => run("npm", ["run", "-s", "typecheck"]));
 step("tests", () => run("npm", ["test"]));
 step("build", () => run("npm", ["run", "-s", "build"]));
+step("TUI runtime imports are declared", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const declared = new Set([
+    ...Object.keys(pkg.dependencies ?? {}),
+    ...Object.keys(pkg.peerDependencies ?? {}),
+  ]);
+  const source = readFileSync("dist/tui.js", "utf8");
+  for (const match of source.matchAll(/\bfrom\s+"([^"]+)"/g)) {
+    const specifier = match[1];
+    if (!specifier || specifier.startsWith(".") || specifier.startsWith("node:")) continue;
+    const name = specifier.startsWith("@")
+      ? specifier.split("/").slice(0, 2).join("/")
+      : specifier.split("/")[0];
+    assert(
+      name !== undefined && declared.has(name),
+      `dist/tui.js imports ${specifier} but ${String(name)} is not in dependencies or peerDependencies`,
+    );
+  }
+});
 step("agent contract drift", () => run("node", ["scripts/generate-agent-contract.mjs", "--check"]));
 step("OpenCode 2 API smoke", () => run("node", ["scripts/smoke-opencode.mjs"]));
 step("OpenCode 2 runtime contract capture", () => run("node", ["scripts/smoke-contract-runtime.mjs"]));

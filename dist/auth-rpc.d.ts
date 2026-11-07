@@ -6,8 +6,45 @@
 export declare const FastContextAuthRpc: {
     readonly id: "fast-context";
     readonly methods: {
-        /** Marks an interactive TUI client as attached so the server may prompt. */
+        /**
+         * Registers an interactive client with the sessions it is showing. Only
+         * searches from those sessions may open a prompt. The response lists
+         * rejected credential IDs the client should remove.
+         */
         readonly attach: {
+            readonly input: {
+                readonly type: "object";
+                readonly properties: {
+                    readonly sessions: {
+                        readonly type: "array";
+                        readonly items: {
+                            readonly type: "string";
+                            readonly minLength: 1;
+                        };
+                        readonly maxItems: 512;
+                    };
+                };
+                readonly required: readonly ["sessions"];
+                readonly additionalProperties: false;
+            };
+            readonly output: {
+                readonly type: "object";
+                readonly properties: {
+                    readonly remove: {
+                        readonly type: "array";
+                        readonly items: {
+                            readonly type: "string";
+                            readonly minLength: 1;
+                        };
+                        readonly maxItems: 512;
+                    };
+                };
+                readonly required: readonly ["remove"];
+                readonly additionalProperties: false;
+            };
+        };
+        /** Marks the TUI client as gone and settles its pending prompts. */
+        readonly detach: {
             readonly input: {
                 readonly type: "object";
                 readonly properties: {};
@@ -19,16 +56,31 @@ export declare const FastContextAuthRpc: {
                 readonly additionalProperties: false;
             };
         };
-        /** Marks the TUI client as gone. */
-        readonly detach: {
+        /** Marks rejected credential IDs as removed so attach stops returning them. */
+        readonly acknowledge: {
             readonly input: {
                 readonly type: "object";
-                readonly properties: {};
+                readonly properties: {
+                    readonly credentialIDs: {
+                        readonly type: "array";
+                        readonly items: {
+                            readonly type: "string";
+                            readonly minLength: 1;
+                        };
+                        readonly maxItems: 512;
+                    };
+                };
+                readonly required: readonly ["credentialIDs"];
                 readonly additionalProperties: false;
             };
             readonly output: {
                 readonly type: "object";
-                readonly properties: {};
+                readonly properties: {
+                    readonly ok: {
+                        readonly type: "boolean";
+                    };
+                };
+                readonly required: readonly ["ok"];
                 readonly additionalProperties: false;
             };
         };

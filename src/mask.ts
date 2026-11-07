@@ -1,14 +1,15 @@
 /**
  * Incremental masking for a single-line secret input.
  *
- * The input renderable always displays `MASK` repeated once per secret
- * character, so the real key never stays visible. `applyMaskDelta` maps each
- * new buffer content back to the underlying secret:
+ * The input renderable displays `SECRET_MASK` once per secret character, so
+ * the real key never stays visible. `applyMaskDelta` maps the edited buffer
+ * back to the secret:
  *
- * - appended text after the current mask extends the secret
- * - a shorter buffer that is a prefix of the mask deletes trailing characters
- * - anything else (selection replace, mid-buffer edits, paste anomalies)
- *   falls back to the buffer with mask characters stripped
+ * - mask characters represent retained secret characters
+ * - any other characters are the text the user just typed or pasted, and
+ *   they are inserted where they appear in the buffer
+ * - a buffer with no inserted text is a deletion, anchored at the caret so
+ *   edits in the middle remove the intended character instead of the tail
  */
 export const SECRET_MASK = "•";
 
@@ -17,22 +18,33 @@ export interface MaskState {
   secret: string;
   /** What the input currently displays: SECRET_MASK repeated secret.length times. */
   shown: string;
+  /** Caret position for the masked buffer after the edit. */
+  cursor: number;
 }
 
 export function createMaskState(): MaskState {
-  return { secret: "", shown: "" };
+  return { secret: "", shown: "", cursor: 0 };
 }
 
-export function applyMaskDelta(state: MaskState, text: string): MaskState {
+export function applyMaskDelta(state: MaskState, text: string, cursor = text.length): MaskState {
   const clean = (value: string) => value.replace(/[\s\u0000-\u001f]+/g, "");
-  let secret: string;
-  if (text.startsWith(state.shown)) {
-    secret = clean(state.secret + text.slice(state.shown.length));
-  } else if (state.shown.startsWith(text)) {
-    const removed = state.shown.length - text.length;
-    secret = clean(state.secret.slice(0, Math.max(0, state.secret.length - removed)));
-  } else {
-    secret = clean(text.split(SECRET_MASK).join(""));
+  const raw = text.split(SECRET_MASK).join("");
+  const inserted = clean(raw);
+  const masked = text.length - raw.length;
+
+  if (inserted.length > 0) {
+    let first = 0;
+    while (first < text.length && text[first] === SECRET_MASK) first += 1;
+    const before = first;
+    const after = Math.max(0, masked - before);
+    const secret = clean(
+      state.secret.slice(0, before) + inserted + state.secret.slice(Math.max(0, state.secret.length - after)),
+    );
+    return { secret, shown: SECRET_MASK.repeat(secret.length), cursor: Math.min(secret.length, before + inserted.length) };
   }
-  return { secret, shown: SECRET_MASK.repeat(secret.length) };
+
+  const deleted = Math.max(0, state.secret.length - masked);
+  const position = Math.max(0, Math.min(cursor, state.secret.length - deleted));
+  const secret = clean(state.secret.slice(0, position) + state.secret.slice(position + deleted));
+  return { secret, shown: SECRET_MASK.repeat(secret.length), cursor: Math.min(secret.length, position) };
 }

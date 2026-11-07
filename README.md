@@ -50,7 +50,7 @@ npm run verify:release
 npm run setup:opencode -- --scope global
 ```
 
-`setup:opencode` adds the absolute checkout path to the global OpenCode configuration, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope project` for a project-local install. Add `--allow-missing-credential` to install before the API key is provisioned; Fast Context returns `fallback_required` until a key is configured.
+`setup:opencode` adds the absolute checkout path to the global OpenCode configuration, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope project` for a project-local install. A TypeSafe key is not required at setup time: the plugin prompts for it in the OpenCode TUI on the first interactive search.
 
 ### One-shot instruction for an agent
 
@@ -84,7 +84,7 @@ The environment key always wins. A stored credential is only consulted when no e
 
 When an interactive OpenCode session runs `fast_context_search` with no usable key, the plugin emits a TUI prompt. The input is masked, the key is verified live against TypeSafe before anything is stored, and a rejected key shows an inline error without being saved. Dismissing the prompt returns `fallback_required` and the search continues with ordinary tools.
 
-A stored key that TypeSafe later rejects (HTTP 401 or 403) is treated as expired: the stale record is removed and the replacement prompt appears on the next search.
+A stored key that TypeSafe later rejects (HTTP 401 or 403) is treated as expired: the stale record is removed before the replacement prompt appears on the next search. If no interactive client can prompt, the record is removed when one next attaches and the search returns `fallback_required`.
 
 The key is persisted only through OpenCode's native integration credential store (SQLite under the OpenCode data directory). It is never written to `opencode.json`, `opencode.jsonc`, plugin options, command arguments, `.env` files, repository files, or logs.
 
@@ -96,7 +96,7 @@ In the OpenCode TUI:
 - `/fast-context auth status` shows which credential sources are configured, without exposing values;
 - `/fast-context auth revoke` removes every Fast Context record from the credential store after confirmation. `TYPESAFE_API_KEY` is not affected.
 
-Headless runs (`opencode run`, background jobs, or sessions with no attached TUI) never block on a prompt. They return `fallback_required` immediately when no credential resolves.
+Headless runs (`opencode run`, background jobs, subagents, or sessions the TUI is not showing) never block on a prompt. They return `fallback_required` immediately when no credential resolves. A rejected stored key is removed when an interactive client next attaches.
 
 ## Configuration
 

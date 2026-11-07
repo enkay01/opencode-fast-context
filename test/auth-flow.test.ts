@@ -6,6 +6,8 @@ import { makeFixture } from "./fixture.ts";
 
 const MODELS_URL = "https://api.typesafe.ai/v1/models";
 const SYSTEMONE_URL = "https://api.typesafe.ai/v1/systemone";
+const SESSION = "session-tui";
+const HEADLESS = "session-headless";
 
 function jevOk() {
   return new Response(
@@ -42,7 +44,7 @@ function makeContext(root: string, options?: { storedKey?: string }) {
         return { dispose: async () => undefined };
       },
       connection: {
-        active: async () => (activeKey === undefined ? undefined : { type: "key", id: "conn-1" }),
+        active: async () => (activeKey === undefined ? undefined : { type: "credential", id: "cred-1" }),
         resolve: async () =>
           activeKey === undefined ? undefined : { type: "key", key: activeKey },
       },
@@ -120,9 +122,9 @@ test("first unauthenticated search emits a prompt request; a bad key fails inlin
     try {
       const { context, tools, handlers, emitted, stored } = makeContext(fixture.root);
       await plugin.setup(context as never);
-      await handlers.get("attach")!({});
+      await handlers.get("attach")!({ sessions: [SESSION] });
 
-      const pending = tools[0]!.execute({ query: "retryDelay" }, {});
+      const pending = tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       await waitForRequests(emitted, 1);
       assert.equal(emitted[0]!.reason, "missing");
 
@@ -164,9 +166,9 @@ test("a verified key submitted through the prompt is stored and the search compl
     try {
       const { context, tools, handlers, emitted, stored } = makeContext(fixture.root);
       await plugin.setup(context as never);
-      await handlers.get("attach")!({});
+      await handlers.get("attach")!({ sessions: [SESSION] });
 
-      const pending = tools[0]!.execute({ query: "retryDelay" }, {});
+      const pending = tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       await waitForRequests(emitted, 1);
 
       modelsStatus = 200;
@@ -194,9 +196,9 @@ test("cancelling the prompt settles the search as fallback_required", async () =
     try {
       const { context, tools, handlers, emitted } = makeContext(fixture.root);
       await plugin.setup(context as never);
-      await handlers.get("attach")!({});
+      await handlers.get("attach")!({ sessions: [SESSION] });
 
-      const pending = tools[0]!.execute({ query: "retryDelay" }, {});
+      const pending = tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       await waitForRequests(emitted, 1);
       await handlers.get("cancel")!({ requestId: emitted[0]!.requestId });
 
@@ -223,9 +225,9 @@ test("an expired stored credential triggers a replacement prompt", async () => {
     try {
       const { context, tools, handlers, emitted } = makeContext(fixture.root, { storedKey: "expired-key" });
       await plugin.setup(context as never);
-      await handlers.get("attach")!({});
+      await handlers.get("attach")!({ sessions: [SESSION] });
 
-      const pending = tools[0]!.execute({ query: "retryDelay" }, {});
+      const pending = tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       await waitForRequests(emitted, 1);
       assert.equal(emitted[0]!.reason, "expired");
 
@@ -244,6 +246,74 @@ test("an expired stored credential triggers a replacement prompt", async () => {
   });
 });
 
+test("a headless session returns fallback_required immediately while a TUI is attached", async () => {
+  await withoutEnv(async () => {
+    const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
+    const restore = stubFetch({ systemone: jevOk });
+    try {
+      const { context, tools, handlers, emitted } = makeContext(fixture.root);
+      await plugin.setup(context as never);
+      await handlers.get("attach")!({ sessions: [SESSION] });
+
+      const result = await tools[0]!.execute({ query: "retryDelay" }, { sessionID: HEADLESS });
+      assert.match(result.content, /fallback_required/);
+      assert.equal(emitted.length, 0);
+    } finally {
+      restore();
+      await fixture.cleanup();
+    }
+  });
+});
+
+test("detach settles a pending prompt instead of leaving the search stuck", async () => {
+  await withoutEnv(async () => {
+    const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
+    const restore = stubFetch({ systemone: jevOk });
+    try {
+      const { context, tools, handlers, emitted } = makeContext(fixture.root);
+      await plugin.setup(context as never);
+      await handlers.get("attach")!({ sessions: [SESSION] });
+
+      const pending = tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
+      await waitForRequests(emitted, 1);
+      await handlers.get("detach")!({});
+
+      const result = await pending;
+      assert.match(result.content, /fallback_required/);
+    } finally {
+      restore();
+      await fixture.cleanup();
+    }
+  });
+});
+
+test("a headless 401 queues the rejected record for the next attaching TUI", async () => {
+  await withoutEnv(async () => {
+    const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
+    const restore = stubFetch({
+      models: () => new Response("{}", { status: 200 }),
+      systemone: () => new Response("denied", { status: 401 }),
+    });
+    try {
+      const { context, tools, handlers } = makeContext(fixture.root, { storedKey: "expired-key" });
+      await plugin.setup(context as never);
+
+      const result = await tools[0]!.execute({ query: "retryDelay" }, { sessionID: HEADLESS });
+      assert.match(result.content, /fallback_required/);
+
+      const attached = (await handlers.get("attach")!({ sessions: [SESSION] })) as { remove: string[] };
+      assert.deepEqual(attached.remove, ["cred-1"]);
+
+      await handlers.get("acknowledge")!({ credentialIDs: ["cred-1"] });
+      const next = (await handlers.get("attach")!({ sessions: [SESSION] })) as { remove: string[] };
+      assert.deepEqual(next.remove, []);
+    } finally {
+      restore();
+      await fixture.cleanup();
+    }
+  });
+});
+
 test("status reports credential sources without exposing values and detach disables prompting", async () => {
   await withoutEnv(async () => {
     const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
@@ -255,9 +325,9 @@ test("status reports credential sources without exposing values and detach disab
       const status = (await handlers.get("status")!({})) as { env: boolean; stored: boolean };
       assert.deepEqual(status, { env: false, stored: false });
 
-      await handlers.get("attach")!({});
+      await handlers.get("attach")!({ sessions: [SESSION] });
       await handlers.get("detach")!({});
-      const result = await tools[0]!.execute({ query: "retryDelay" }, {});
+      const result = await tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       assert.match(result.content, /fallback_required/);
       assert.equal(emitted.length, 0);
     } finally {

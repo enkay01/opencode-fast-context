@@ -1,22 +1,29 @@
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
-import type { InputRenderable } from "@opentui/core";
-import { createSignal, onMount, Show } from "solid-js";
+import type { InputRenderable, TextRenderable } from "@opentui/core";
+import { parseAuthCommand } from "./auth-command.ts";
 import { FastContextAuthRpc } from "./auth-rpc.ts";
 import {
   FAST_CONTEXT_INTEGRATION_ID,
-  fastContextCredentialEntries,
-  replacementRemoval,
+  removeAllFastContextCredentials,
+  removeFastContextCredentials,
+  removeStaleFastContextCredentials,
 } from "./credentials.ts";
 import { applyMaskDelta, createMaskState, SECRET_MASK } from "./mask.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const PROMPT_FOOTER = `Enter to save · Esc to cancel · input shows ${SECRET_MASK} per character`;
 
 interface AuthRequestEvent {
   requestId: string;
   reason: "missing" | "expired";
 }
 
-/** Masked single-line key entry; the renderable only ever shows mask characters. */
+/**
+ * Masked single-line key entry. The renderable is updated imperatively so the
+ * prompt does not depend on the plugin's own Solid instance reaching the
+ * host renderer; only the host-owned dialog shell renders it.
+ */
 function MaskedKeyPrompt(props: {
   title: string;
   description: string;
@@ -27,41 +34,51 @@ function MaskedKeyPrompt(props: {
 }) {
   const context = usePlugin();
   const theme = context.theme.surface("dialog");
-  const [error, setError] = createSignal<string>();
-  const [busy, setBusy] = createSignal(false);
   const mask = createMaskState();
   let input: InputRenderable | undefined;
+  let errorText: TextRenderable | undefined;
+  let footerText: TextRenderable | undefined;
+  let busy = false;
 
-  const handleInput = (text: string) => {
-    if (busy()) return;
-    const buffer = input?.plainText ?? text;
-    const next = applyMaskDelta(mask, buffer);
+  const showError = (message?: string) => {
+    if (errorText) errorText.content = message ?? "";
+  };
+
+  const showBusy = (value: boolean) => {
+    busy = value;
+    if (footerText) footerText.content = busy ? "Verifying with TypeSafe…" : PROMPT_FOOTER;
+  };
+
+  const handleInput = () => {
+    if (busy || !input) return;
+    const next = applyMaskDelta(mask, input.plainText, input.cursorOffset);
     mask.secret = next.secret;
     mask.shown = next.shown;
-    if (input && input.plainText !== next.shown) {
+    if (input.plainText !== next.shown) {
       input.value = next.shown;
-      input.gotoLineEnd();
     }
+    input.cursorOffset = next.cursor;
+    showError(undefined);
   };
 
   const handleSubmit = async () => {
-    if (busy()) return;
+    if (busy) return;
     const key = mask.secret;
     if (!key) {
-      setError("Enter your TypeSafe API key.");
+      showError("Enter your TypeSafe API key.");
       return;
     }
-    setBusy(true);
-    setError(undefined);
+    showBusy(true);
+    showError(undefined);
     try {
       const failure = await props.submit(key);
       if (failure === undefined) {
         props.onDone();
         return;
       }
-      setError(failure);
+      showError(failure);
     } finally {
-      setBusy(false);
+      showBusy(false);
     }
   };
 
@@ -77,10 +94,6 @@ function MaskedKeyPrompt(props: {
     ],
   }));
 
-  onMount(() => {
-    setTimeout(() => input?.focus(), 1);
-  });
-
   return (
     <box flexDirection="column" gap={1} padding={1}>
       <text fg={theme.text.base}>{props.title}</text>
@@ -88,15 +101,16 @@ function MaskedKeyPrompt(props: {
       <input
         ref={(el: InputRenderable | undefined) => {
           input = el;
+          if (el) setTimeout(() => el.focus(), 1);
         }}
         placeholder={props.placeholder ?? "TypeSafe API key"}
         maxLength={512}
         onInput={handleInput}
         onSubmit={() => void handleSubmit()}
       />
-      <Show when={error()}>{(message: () => string) => <text fg={theme.text.feedback.error.base}>{message()}</text>}</Show>
-      <text fg={theme.text.faint}>
-        {busy() ? "Verifying with TypeSafe…" : `Enter to save · Esc to cancel · input shows ${SECRET_MASK} per character`}
+      <text ref={(el: TextRenderable | undefined) => { errorText = el; }} fg={theme.text.feedback.error.base} />
+      <text ref={(el: TextRenderable | undefined) => { footerText = el; }} fg={theme.text.faint}>
+        {PROMPT_FOOTER}
       </text>
     </box>
   );
@@ -108,11 +122,38 @@ export default Plugin.define({
     const client = context.client.rpc(FastContextAuthRpc);
     const api = context.client;
 
+    /** Root sessions this TUI is showing. Subagent sessions never prompt. */
+    const interactiveSessions = (): string[] => {
+      const sessions = new Set<string>();
+      const route = context.ui.router.current();
+      if (route.type === "session" && !context.data.session.get(route.sessionID)?.parentID) {
+        sessions.add(route.sessionID);
+      }
+      for (const tab of context.ui.tabs.list()) {
+        if (!context.data.session.get(tab.sessionID)?.parentID) sessions.add(tab.sessionID);
+      }
+      return [...sessions];
+    };
+
+    /** Re-registers visible sessions and removes credentials rejected elsewhere. */
+    const syncAttachment = async () => {
+      const response = (await client.attach({ sessions: interactiveSessions() })) as { remove: string[] };
+      if (response.remove.length === 0) return;
+      try {
+        await removeFastContextCredentials(api.credential, response.remove);
+        // Acknowledge every requested ID: absent and foreign records are
+        // already in the desired state, so they must not be retried forever.
+        await client.acknowledge({ credentialIDs: response.remove });
+      } catch {
+        // Keep the IDs queued; the next attach retries the removal.
+      }
+    };
+
     // The server part registers the RPC during its own setup; retry briefly
     // so attach does not fail on startup ordering.
     for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
-        await client.attach({});
+        await syncAttachment();
         break;
       } catch {
         if (attempt === 19) break;
@@ -120,19 +161,11 @@ export default Plugin.define({
       }
     }
 
-    const removeStoredCredentials = async () => {
-      const entries = await api.credential.list();
-      for (const entry of replacementRemoval(entries)) {
-        await api.credential.remove({ credentialID: entry.id });
-      }
+    const refreshAttachment = () => {
+      void syncAttachment().catch(() => {});
     };
-
-    const removeAllCredentials = async () => {
-      const entries = await api.credential.list();
-      for (const entry of fastContextCredentialEntries(entries)) {
-        await api.credential.remove({ credentialID: entry.id });
-      }
-    };
+    const unsubscribeViewed = context.data.on("session.viewed", refreshAttachment);
+    const unsubscribeCreated = context.data.on("session.created", refreshAttachment);
 
     /** Shows the masked prompt; resolves after save or cancel. */
     const collectKey = (options: {
@@ -163,11 +196,13 @@ export default Plugin.define({
                     ...(options.requestId ? { requestId: options.requestId } : {}),
                     key,
                   })) as { ok: boolean; error?: string };
-                  if (result.ok) {
-                    finish("saved");
-                    return undefined;
+                  if (!result.ok) return result.error ?? "Could not save the key.";
+                  try {
+                    await removeStaleFastContextCredentials(api.credential);
+                  } catch {
+                    // The new key is active; stale rows are retried on the next save.
                   }
-                  return result.error ?? "Could not save the key.";
+                  return undefined;
                 } catch {
                   return "Could not reach the OpenCode server. Try again.";
                 }
@@ -177,6 +212,7 @@ export default Plugin.define({
             />
           ),
           () => {
+            if (settled) return;
             if (options.requestId) void client.cancel({ requestId: options.requestId }).catch(() => {});
             finish("cancelled");
           },
@@ -201,7 +237,9 @@ export default Plugin.define({
       enqueue(async () => {
         if (event.reason === "expired") {
           try {
-            await removeStoredCredentials();
+            // Remove the rejected record before offering a replacement so a
+            // cancelled prompt cannot leave the dead key resolvable.
+            await removeAllFastContextCredentials(api.credential);
           } catch {
             // The prompt still offers a replacement key.
           }
@@ -218,7 +256,7 @@ export default Plugin.define({
       });
     };
 
-    const unsubscribe = client.events.on("request", (event) => {
+    const unsubscribeRequest = client.events.on("request", (event) => {
       handleRequest(event.data as unknown as AuthRequestEvent);
     });
 
@@ -242,12 +280,14 @@ export default Plugin.define({
     };
 
     const promptAndSave = async () => {
-      await collectKey({
+      const outcome = await collectKey({
         title: "Store a Fast Context credential",
         description:
           "Enter your TypeSafe API key. It is verified live, then saved in OpenCode's credential store. The key is never written to this project or your shell profile.",
       });
-      context.ui.toast.show({ title: "Fast Context", message: "Credential updated.", variant: "success" });
+      if (outcome === "saved") {
+        context.ui.toast.show({ title: "Fast Context", message: "Credential updated.", variant: "success" });
+      }
     };
 
     const revoke = async () => {
@@ -258,7 +298,7 @@ export default Plugin.define({
       });
       if (!confirmed) return;
       try {
-        await removeAllCredentials();
+        await removeAllFastContextCredentials(api.credential);
         context.ui.toast.show({ title: "Fast Context", message: "Stored credential revoked.", variant: "success" });
       } catch {
         context.ui.toast.show({ title: "Fast Context", message: "Could not revoke the credential.", variant: "error" });
@@ -266,31 +306,30 @@ export default Plugin.define({
     };
 
     const runAuthCommand = async (input: string) => {
-      const command = input.trim().split(/\s+/).filter(Boolean)[0] ?? "";
-      if (command === "" || command === "login" || command === "set" || command === "key") {
-        await promptAndSave();
-        return;
+      const command = parseAuthCommand(input ?? "");
+      switch (command.action) {
+        case "set":
+          await promptAndSave();
+          return;
+        case "status":
+          await showStatus();
+          return;
+        case "revoke":
+          await revoke();
+          return;
+        case "help":
+          await context.ui.dialog.alert({
+            title: "Fast Context auth",
+            message: "/fast-context auth - store or replace the TypeSafe key\n/fast-context auth status - show credential sources\n/fast-context auth revoke - remove stored keys",
+          });
+          return;
+        case "unknown":
+          context.ui.toast.show({
+            title: "Fast Context",
+            message: `Unknown auth command "${command.token}". Try /fast-context auth help.`,
+            variant: "warning",
+          });
       }
-      if (command === "status") {
-        await showStatus();
-        return;
-      }
-      if (command === "revoke" || command === "logout" || command === "remove") {
-        await revoke();
-        return;
-      }
-      if (command === "help") {
-        await context.ui.dialog.alert({
-          title: "Fast Context auth",
-          message: "/fast-context auth - store or replace the TypeSafe key\n/fast-context auth status - show credential sources\n/fast-context auth revoke - remove stored keys",
-        });
-        return;
-      }
-      context.ui.toast.show({
-        title: "Fast Context",
-        message: `Unknown auth command "${command}". Try /fast-context auth help.`,
-        variant: "warning",
-      });
     };
 
     context.keymap.layer(() => ({
@@ -304,6 +343,7 @@ export default Plugin.define({
           palette: true,
           slash: { name: "fast-context", arguments: true },
           run: async (input) => {
+            refreshAttachment();
             await runAuthCommand(input ?? "");
           },
         },
@@ -311,7 +351,9 @@ export default Plugin.define({
     }));
 
     return () => {
-      unsubscribe();
+      unsubscribeRequest();
+      unsubscribeViewed();
+      unsubscribeCreated();
       void client.detach({}).catch(() => {});
     };
   },

@@ -54,7 +54,7 @@ export async function runFastContext(options) {
     const resolve = () => resolveProviderAsync(process.env, overrides, credentials ? storedKey : undefined);
     let resolution = await resolve();
     if (!resolution.provider && credentials?.requestAuth) {
-        const outcome = await credentials.requestAuth("missing", options.signal);
+        const outcome = await credentials.requestAuth("missing", options.signal, options.sessionID);
         if (outcome === "saved") {
             resolution = await resolve();
         }
@@ -75,20 +75,25 @@ export async function runFastContext(options) {
             authStatus = status;
     };
     let result = await runSearch(resolution.provider, capture);
-    if (result.status === "fallback_required" &&
-        authStatus !== null &&
-        resolution.source === "store" &&
-        credentials?.requestAuth) {
-        const outcome = await credentials.requestAuth("expired", options.signal);
-        if (outcome === "saved") {
-            const retry = await resolve();
-            if (retry.provider) {
-                authStatus = null;
-                result = await runSearch(retry.provider, capture);
-                if (result.status === "fallback_required" && authStatus !== null) {
-                    return { ...result, reason: authFailureReason(retry.source, authStatus) };
+    if (result.status === "fallback_required" && authStatus !== null && resolution.source === "store") {
+        try {
+            await credentials?.discardStored?.();
+        }
+        catch {
+            // Cleanup is best effort; the fallback reason still tells the user.
+        }
+        if (credentials?.requestAuth) {
+            const outcome = await credentials.requestAuth("expired", options.signal, options.sessionID);
+            if (outcome === "saved") {
+                const retry = await resolve();
+                if (retry.provider) {
+                    authStatus = null;
+                    result = await runSearch(retry.provider, capture);
+                    if (result.status === "fallback_required" && authStatus !== null) {
+                        return { ...result, reason: authFailureReason(retry.source, authStatus) };
+                    }
+                    return result;
                 }
-                return result;
             }
         }
     }

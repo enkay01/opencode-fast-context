@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { Plugin } from "@opencode/plugin";
+import { createAuthBroker } from "./auth-broker.ts";
 import { FastContextAuthRpc } from "./auth-rpc.ts";
 import { readPublicConfig } from "./config.ts";
 import {
+  FAST_CONTEXT_INTEGRATION_ID,
   hasStoredCredential,
   registerFastContextIntegration,
   resolveStoredApiKey,
@@ -17,62 +18,7 @@ import {
   TOOL_INPUT_SCHEMA,
   formatForModel,
   runFastContext,
-  type AuthRequestOutcome,
-  type AuthRequestReason,
-  type CredentialBroker,
 } from "./tool.ts";
-
-interface PendingAuthRequest {
-  settle: (outcome: AuthRequestOutcome) => void;
-}
-
-/** Server-side bridge between fast_context_search and the TUI auth prompt. */
-function createAuthBroker(ctx: Plugin.Context) {
-  const integration = ctx.integration as unknown as IntegrationCredentialApi;
-  const pending = new Map<string, PendingAuthRequest>();
-  let tuiAttached = false;
-  let emit: ((reason: AuthRequestReason, requestId: string) => Promise<void>) | null = null;
-
-  const broker: CredentialBroker = {
-    resolveStored: async () => {
-      try {
-        return await resolveStoredApiKey(integration);
-      } catch {
-        return undefined;
-      }
-    },
-    requestAuth: async (reason, signal) => {
-      if (!tuiAttached || !emit) return "unavailable";
-      const requestId = randomUUID();
-      const outcome = await new Promise<AuthRequestOutcome>((resolve) => {
-        const finish = (value: AuthRequestOutcome) => {
-          if (!pending.has(requestId)) return;
-          pending.delete(requestId);
-          signal?.removeEventListener("abort", onAbort);
-          resolve(value);
-        };
-        const onAbort = () => finish("cancelled");
-        if (signal) {
-          if (signal.aborted) {
-            resolve("cancelled");
-            return;
-          }
-          signal.addEventListener("abort", onAbort, { once: true });
-        }
-        pending.set(requestId, { settle: finish });
-        void emit!(reason, requestId).catch(() => finish("unavailable"));
-      });
-      return outcome;
-    },
-  };
-
-  const settle = (requestId: string, outcome: AuthRequestOutcome) => {
-    pending.get(requestId)?.settle(outcome);
-    return { ok: true };
-  };
-
-  return { broker, settle, setEmit: (fn: typeof emit) => (emit = fn), setTuiAttached: (value: boolean) => (tuiAttached = value) };
-}
 
 /** OpenCode 2 plugin entry point. */
 export default Plugin.define({
@@ -80,24 +26,46 @@ export default Plugin.define({
   async setup(ctx: Plugin.Context) {
     const config = readPublicConfig(ctx.options as Record<string, unknown> | undefined);
     const root = ctx.location.project?.directory || ctx.location.directory;
-    const auth = createAuthBroker(ctx);
+    const integration = ctx.integration as unknown as IntegrationCredentialApi;
 
-    const integrationRegistration = await registerFastContextIntegration(
-      ctx.integration as unknown as IntegrationCredentialApi,
-    );
+    const auth = createAuthBroker({
+      resolveStored: async () => {
+        try {
+          return await resolveStoredApiKey(integration);
+        } catch {
+          return undefined;
+        }
+      },
+      activeCredentialID: async () => {
+        try {
+          const connection = await integration.connection.active(FAST_CONTEXT_INTEGRATION_ID);
+          if (connection?.type !== "credential" || typeof connection.id !== "string") return undefined;
+          return connection.id;
+        } catch {
+          return undefined;
+        }
+      },
+    });
+
+    const integrationRegistration = await registerFastContextIntegration(integration);
 
     const rpcRegistration = await ctx.rpc.register(FastContextAuthRpc, {
-      attach: async () => {
-        auth.setTuiAttached(true);
-        return {};
+      attach: async (input) => {
+        const { sessions } = input as { sessions: string[] };
+        return auth.attach(sessions);
       },
       detach: async () => {
-        auth.setTuiAttached(false);
+        auth.detach();
         return {};
+      },
+      acknowledge: async (input) => {
+        const { credentialIDs } = input as { credentialIDs: string[] };
+        auth.acknowledge(credentialIDs);
+        return { ok: true };
       },
       status: async () => ({
         env: Boolean(process.env.TYPESAFE_API_KEY),
-        stored: await hasStoredCredential(ctx.integration as unknown as IntegrationCredentialApi),
+        stored: await hasStoredCredential(integration),
       }),
       submitKey: async (input) => {
         const { requestId, key } = input as { requestId?: string; key: string };
@@ -106,10 +74,11 @@ export default Plugin.define({
           return { ok: false, error: verificationErrorMessage(verification) };
         }
         try {
-          await storeApiKey(ctx.integration as unknown as IntegrationCredentialApi, key);
+          await storeApiKey(integration, key);
         } catch {
           return { ok: false, error: "OpenCode could not store the credential. Try again." };
         }
+        auth.clearRejected();
         if (requestId) auth.settle(requestId, "saved");
         return { ok: true };
       },
@@ -118,8 +87,8 @@ export default Plugin.define({
         return auth.settle(requestId, "cancelled");
       },
     });
-    auth.setEmit(async (reason, requestId) => {
-      await rpcRegistration.events.emit("request", { requestId, reason });
+    auth.setEmit(async (event) => {
+      await rpcRegistration.events.emit("request", event as unknown as Readonly<Record<string, unknown>>);
     });
 
     const toolRegistration = await ctx.tool.transform((editor) => {
@@ -135,6 +104,7 @@ export default Plugin.define({
             query: input.query,
             config,
             credentials: auth.broker,
+            sessionID: toolContext.sessionID,
             ...(input.maxFiles ? { maxFiles: input.maxFiles } : {}),
             ...(toolContext.signal ? { signal: toolContext.signal } : {}),
           });
@@ -154,6 +124,7 @@ export default Plugin.define({
           });
 
     return async () => {
+      auth.dispose();
       await guidanceRegistration?.dispose();
       await toolRegistration.dispose();
       await rpcRegistration.dispose();

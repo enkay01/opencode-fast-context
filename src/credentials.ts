@@ -162,3 +162,50 @@ export function replacementRemoval<T extends CredentialEntryLike>(entries: reado
   const keep = ours.find((entry) => entry.active) ?? ours[0];
   return ours.filter((entry) => entry !== keep);
 }
+
+/** Minimal structural view of the client credential API used for cleanup. */
+export interface CredentialStoreApi {
+  list: () => Promise<readonly CredentialEntryLike[]>;
+  remove: (input: { credentialID: string }) => Promise<void>;
+}
+
+async function removeEntries(
+  api: CredentialStoreApi,
+  entries: readonly CredentialEntryLike[],
+): Promise<string[]> {
+  const removed: string[] = [];
+  for (const entry of entries) {
+    await api.remove({ credentialID: entry.id });
+    removed.push(entry.id);
+  }
+  return removed;
+}
+
+/**
+ * Removes stale Fast Context records after a verified save while keeping the
+ * newly active credential. Returns the removed credential IDs.
+ */
+export async function removeStaleFastContextCredentials(api: CredentialStoreApi): Promise<string[]> {
+  return removeEntries(api, replacementRemoval(await api.list()));
+}
+
+/**
+ * Removes every Fast Context record. Used on expiry and revoke so a rejected
+ * key cannot be resolved again. Returns the removed credential IDs.
+ */
+export async function removeAllFastContextCredentials(api: CredentialStoreApi): Promise<string[]> {
+  return removeEntries(api, fastContextCredentialEntries(await api.list()));
+}
+
+/**
+ * Removes the named Fast Context records, ignoring IDs that belong to another
+ * integration or no longer exist. Returns the removed credential IDs.
+ */
+export async function removeFastContextCredentials(
+  api: CredentialStoreApi,
+  credentialIDs: readonly string[],
+): Promise<string[]> {
+  const wanted = new Set(credentialIDs);
+  const entries = fastContextCredentialEntries(await api.list()).filter((entry) => wanted.has(entry.id));
+  return removeEntries(api, entries);
+}

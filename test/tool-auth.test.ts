@@ -105,12 +105,16 @@ test("an expired stored key prompts for replacement and retries once", async () 
       let stored: string | undefined = "expired-key";
       const reasons: string[] = [];
       let calls = 0;
+      let discards = 0;
       const broker: CredentialBroker = {
         resolveStored: async () => stored,
         requestAuth: async (reason) => {
           reasons.push(reason);
           stored = "replacement-key";
           return "saved";
+        },
+        discardStored: async () => {
+          discards += 1;
         },
       };
       const result = await runFastContext({
@@ -126,6 +130,7 @@ test("an expired stored key prompts for replacement and retries once", async () 
       });
       assert.equal(result.status, "complete");
       assert.deepEqual(reasons, ["expired"]);
+      assert.equal(discards, 1);
     } finally {
       await fixture.cleanup();
     }
@@ -139,6 +144,7 @@ test("a rejected environment key reports the env source and never prompts or rea
   try {
     let storeReads = 0;
     let prompts = 0;
+    let discards = 0;
     const broker: CredentialBroker = {
       resolveStored: async () => {
         storeReads += 1;
@@ -147,6 +153,9 @@ test("a rejected environment key reports the env source and never prompts or rea
       requestAuth: async () => {
         prompts += 1;
         return "saved";
+      },
+      discardStored: async () => {
+        discards += 1;
       },
     };
     const result = await runFastContext({
@@ -160,6 +169,7 @@ test("a rejected environment key reports the env source and never prompts or rea
     assert.match(result.reason ?? "", /stored OpenCode credential was left untouched/);
     assert.equal(storeReads, 0);
     assert.equal(prompts, 0);
+    assert.equal(discards, 0);
   } finally {
     if (previous === undefined) delete process.env.TYPESAFE_API_KEY;
     else process.env.TYPESAFE_API_KEY = previous;

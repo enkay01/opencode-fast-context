@@ -33,9 +33,10 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: npm run setup:opencode -- [--scope project|global] [--package <spec>] [--remove] [--allow-missing-credential]
+  console.log(`Usage: npm run setup:opencode -- [--scope project|global] [--package <spec>] [--remove]
 
 Registers the Fast Context plugin in OpenCode 2 configuration.
+A missing TYPESAFE_API_KEY is allowed; the plugin prompts in the OpenCode TUI on the first search.
 It never accepts, reads, prints, or writes TYPESAFE_API_KEY.
 `);
 }
@@ -354,9 +355,9 @@ async function main() {
   checkPrerequisites();
 
   if (!args.remove && !args.allowMissingCredential && !credentialPresent()) {
-    fail(
-      "TYPESAFE_API_KEY is not present in this environment. Provision it through your secret manager " +
-        "or shell, then rerun. The value is never read or printed by this script.",
+    console.log(
+      "note: TYPESAFE_API_KEY is not set. The plugin prompts for a TypeSafe key inside the OpenCode TUI " +
+        "on the first search; headless runs return fallback_required until a key is stored.",
     );
   }
 
@@ -440,7 +441,7 @@ async function main() {
   console.log(`${upgraded ? "Updated" : "Added"} ${target} in ${config.path}.`);
   console.log(`Plugin id: ${PLUGIN_ID}`);
   console.log(
-    `TYPESAFE_API_KEY: ${credentialPresent() ? "present" : "missing (Fast Context will return fallback_required until it is set)"}`,
+    `TYPESAFE_API_KEY: ${credentialPresent() ? "present" : "missing (the plugin prompts in the OpenCode TUI on first search)"}`,
   );
   console.log(`Restart OpenCode from the same environment.`);
   console.log(`Remove with: npm run setup:opencode -- --remove --scope ${args.scope}`);

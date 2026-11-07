@@ -13,6 +13,12 @@ const OK_OUTPUT = {
   additionalProperties: false,
 } as const;
 
+const STRING_LIST = {
+  type: "array",
+  items: { type: "string", minLength: 1 },
+  maxItems: 512,
+} as const;
+
 /**
  * Typed contract between the Fast Context server part and its TUI part.
  * The server registers these methods and emits `request` events when a
@@ -21,15 +27,39 @@ const OK_OUTPUT = {
 export const FastContextAuthRpc = Rpc.define({
   id: "fast-context",
   methods: {
-    /** Marks an interactive TUI client as attached so the server may prompt. */
+    /**
+     * Registers an interactive client with the sessions it is showing. Only
+     * searches from those sessions may open a prompt. The response lists
+     * rejected credential IDs the client should remove.
+     */
     attach: {
-      input: EMPTY_OBJECT,
-      output: EMPTY_OBJECT,
+      input: {
+        type: "object",
+        properties: { sessions: STRING_LIST },
+        required: ["sessions"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: { remove: STRING_LIST },
+        required: ["remove"],
+        additionalProperties: false,
+      },
     },
-    /** Marks the TUI client as gone. */
+    /** Marks the TUI client as gone and settles its pending prompts. */
     detach: {
       input: EMPTY_OBJECT,
       output: EMPTY_OBJECT,
+    },
+    /** Marks rejected credential IDs as removed so attach stops returning them. */
+    acknowledge: {
+      input: {
+        type: "object",
+        properties: { credentialIDs: STRING_LIST },
+        required: ["credentialIDs"],
+        additionalProperties: false,
+      },
+      output: OK_OUTPUT,
     },
     /** Credential presence by source; never returns secret material. */
     status: {

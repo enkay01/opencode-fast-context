@@ -21,9 +21,14 @@ export interface CredentialBroker {
   /**
    * Asks an interactive client for a key. Resolves "saved" after a verified
    * key was persisted, "cancelled" when the user dismissed the prompt, and
-   * "unavailable" when no interactive client can prompt.
+   * "unavailable" when no interactive client can prompt for this session.
    */
-  requestAuth?(reason: AuthRequestReason, signal?: AbortSignal): Promise<AuthRequestOutcome>;
+  requestAuth?(reason: AuthRequestReason, signal?: AbortSignal, sessionID?: string): Promise<AuthRequestOutcome>;
+  /**
+   * Records the active stored credential as rejected after a 401/403 so an
+   * attached client removes it. The server cannot delete credentials itself.
+   */
+  discardStored?(): Promise<void>;
 }
 
 export interface RunOptions {
@@ -34,6 +39,8 @@ export interface RunOptions {
   /** Internal test seam. Never populated from plugin options. */
   overrides?: ProviderOverrides;
   signal?: AbortSignal;
+  /** Session that invoked the tool; decides whether a prompt is interactive. */
+  sessionID?: string;
   /** Credential store and interactive prompt bridge; absent means env-only. */
   credentials?: CredentialBroker;
 }
@@ -102,7 +109,7 @@ export async function runFastContext(options: RunOptions): Promise<SearchResult>
   let resolution = await resolve();
 
   if (!resolution.provider && credentials?.requestAuth) {
-    const outcome = await credentials.requestAuth("missing", options.signal);
+    const outcome = await credentials.requestAuth("missing", options.signal, options.sessionID);
     if (outcome === "saved") {
       resolution = await resolve();
     }
@@ -128,22 +135,24 @@ export async function runFastContext(options: RunOptions): Promise<SearchResult>
 
   let result = await runSearch(resolution.provider, capture);
 
-  if (
-    result.status === "fallback_required" &&
-    authStatus !== null &&
-    resolution.source === "store" &&
-    credentials?.requestAuth
-  ) {
-    const outcome = await credentials.requestAuth("expired", options.signal);
-    if (outcome === "saved") {
-      const retry = await resolve();
-      if (retry.provider) {
-        authStatus = null;
-        result = await runSearch(retry.provider, capture);
-        if (result.status === "fallback_required" && authStatus !== null) {
-          return { ...result, reason: authFailureReason(retry.source, authStatus) };
+  if (result.status === "fallback_required" && authStatus !== null && resolution.source === "store") {
+    try {
+      await credentials?.discardStored?.();
+    } catch {
+      // Cleanup is best effort; the fallback reason still tells the user.
+    }
+    if (credentials?.requestAuth) {
+      const outcome = await credentials.requestAuth("expired", options.signal, options.sessionID);
+      if (outcome === "saved") {
+        const retry = await resolve();
+        if (retry.provider) {
+          authStatus = null;
+          result = await runSearch(retry.provider, capture);
+          if (result.status === "fallback_required" && authStatus !== null) {
+            return { ...result, reason: authFailureReason(retry.source, authStatus) };
+          }
+          return result;
         }
-        return result;
       }
     }
   }

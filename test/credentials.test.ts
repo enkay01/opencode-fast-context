@@ -5,11 +5,15 @@ import {
   fastContextCredentialEntries,
   hasStoredCredential,
   registerFastContextIntegration,
+  removeAllFastContextCredentials,
+  removeFastContextCredentials,
+  removeStaleFastContextCredentials,
   replacementRemoval,
   resolveStoredApiKey,
   storeApiKey,
   verificationErrorMessage,
   verifyApiKey,
+  type CredentialEntryLike,
   type IntegrationCredentialApi,
 } from "../src/credentials.ts";
 
@@ -177,4 +181,58 @@ test("replacementRemoval falls back to the first record when none is active", ()
     replacementRemoval(entries).map((item) => item.id),
     ["second"],
   );
+});
+
+function recordList(initial: CredentialEntryLike[]) {
+  const entries = [...initial];
+  const removed: string[] = [];
+  return {
+    entries,
+    removed,
+    api: {
+      list: async () => entries,
+      remove: async ({ credentialID }: { credentialID: string }) => {
+        removed.push(credentialID);
+        const index = entries.findIndex((item) => item.id === credentialID);
+        if (index >= 0) entries.splice(index, 1);
+      },
+    },
+  };
+}
+
+test("a verified replacement removes every older record and keeps the active one", async () => {
+  const store = recordList([
+    entry("old-1", FAST_CONTEXT_INTEGRATION_ID),
+    entry("old-2", FAST_CONTEXT_INTEGRATION_ID),
+    entry("other", "exa"),
+    entry("active", FAST_CONTEXT_INTEGRATION_ID, true),
+  ]);
+  assert.deepEqual(await removeStaleFastContextCredentials(store.api), ["old-1", "old-2"]);
+  assert.deepEqual(store.entries.map((item) => item.id).sort(), ["active", "other"]);
+});
+
+test("expiry removes every Fast Context record and leaves other integrations", async () => {
+  const store = recordList([
+    entry("active", FAST_CONTEXT_INTEGRATION_ID, true),
+    entry("duplicate", FAST_CONTEXT_INTEGRATION_ID),
+    entry("other", "exa"),
+  ]);
+  assert.deepEqual(await removeAllFastContextCredentials(store.api), ["active", "duplicate"]);
+  assert.deepEqual(store.entries.map((item) => item.id), ["other"]);
+});
+
+test("cancelling a replacement does not remove records", async () => {
+  const store = recordList([entry("active", FAST_CONTEXT_INTEGRATION_ID, true)]);
+  assert.deepEqual(await removeStaleFastContextCredentials(store.api), []);
+  assert.deepEqual(store.removed, []);
+});
+
+test("queued rejected IDs remove only matching Fast Context records", async () => {
+  const store = recordList([
+    entry("rejected", FAST_CONTEXT_INTEGRATION_ID),
+    entry("active", FAST_CONTEXT_INTEGRATION_ID, true),
+    entry("other", "exa"),
+  ]);
+  assert.deepEqual(await removeFastContextCredentials(store.api, ["rejected", "other", "missing"]), ["rejected"]);
+  assert.deepEqual(store.entries.map((item) => item.id), ["active", "other"]);
 });

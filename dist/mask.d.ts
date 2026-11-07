@@ -1,14 +1,15 @@
 /**
  * Incremental masking for a single-line secret input.
  *
- * The input renderable always displays `MASK` repeated once per secret
- * character, so the real key never stays visible. `applyMaskDelta` maps each
- * new buffer content back to the underlying secret:
+ * The input renderable displays `SECRET_MASK` once per secret character, so
+ * the real key never stays visible. `applyMaskDelta` maps the edited buffer
+ * back to the secret:
  *
- * - appended text after the current mask extends the secret
- * - a shorter buffer that is a prefix of the mask deletes trailing characters
- * - anything else (selection replace, mid-buffer edits, paste anomalies)
- *   falls back to the buffer with mask characters stripped
+ * - mask characters represent retained secret characters
+ * - any other characters are the text the user just typed or pasted, and
+ *   they are inserted where they appear in the buffer
+ * - a buffer with no inserted text is a deletion, anchored at the caret so
+ *   edits in the middle remove the intended character instead of the tail
  */
 export declare const SECRET_MASK = "\u2022";
 export interface MaskState {
@@ -16,6 +17,8 @@ export interface MaskState {
     secret: string;
     /** What the input currently displays: SECRET_MASK repeated secret.length times. */
     shown: string;
+    /** Caret position for the masked buffer after the edit. */
+    cursor: number;
 }
 export declare function createMaskState(): MaskState;
-export declare function applyMaskDelta(state: MaskState, text: string): MaskState;
+export declare function applyMaskDelta(state: MaskState, text: string, cursor?: number): MaskState;

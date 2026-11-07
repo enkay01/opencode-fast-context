@@ -90,3 +90,34 @@ export function replacementRemoval(entries) {
     const keep = ours.find((entry) => entry.active) ?? ours[0];
     return ours.filter((entry) => entry !== keep);
 }
+async function removeEntries(api, entries) {
+    const removed = [];
+    for (const entry of entries) {
+        await api.remove({ credentialID: entry.id });
+        removed.push(entry.id);
+    }
+    return removed;
+}
+/**
+ * Removes stale Fast Context records after a verified save while keeping the
+ * newly active credential. Returns the removed credential IDs.
+ */
+export async function removeStaleFastContextCredentials(api) {
+    return removeEntries(api, replacementRemoval(await api.list()));
+}
+/**
+ * Removes every Fast Context record. Used on expiry and revoke so a rejected
+ * key cannot be resolved again. Returns the removed credential IDs.
+ */
+export async function removeAllFastContextCredentials(api) {
+    return removeEntries(api, fastContextCredentialEntries(await api.list()));
+}
+/**
+ * Removes the named Fast Context records, ignoring IDs that belong to another
+ * integration or no longer exist. Returns the removed credential IDs.
+ */
+export async function removeFastContextCredentials(api, credentialIDs) {
+    const wanted = new Set(credentialIDs);
+    const entries = fastContextCredentialEntries(await api.list()).filter((entry) => wanted.has(entry.id));
+    return removeEntries(api, entries);
+}

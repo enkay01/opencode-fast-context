@@ -88,3 +88,25 @@ export declare function fastContextCredentialEntries<T extends CredentialEntryLi
  * explicitly through `credential.remove`.
  */
 export declare function replacementRemoval<T extends CredentialEntryLike>(entries: readonly T[]): T[];
+/** Minimal structural view of the client credential API used for cleanup. */
+export interface CredentialStoreApi {
+    list: () => Promise<readonly CredentialEntryLike[]>;
+    remove: (input: {
+        credentialID: string;
+    }) => Promise<void>;
+}
+/**
+ * Removes stale Fast Context records after a verified save while keeping the
+ * newly active credential. Returns the removed credential IDs.
+ */
+export declare function removeStaleFastContextCredentials(api: CredentialStoreApi): Promise<string[]>;
+/**
+ * Removes every Fast Context record. Used on expiry and revoke so a rejected
+ * key cannot be resolved again. Returns the removed credential IDs.
+ */
+export declare function removeAllFastContextCredentials(api: CredentialStoreApi): Promise<string[]>;
+/**
+ * Removes the named Fast Context records, ignoring IDs that belong to another
+ * integration or no longer exist. Returns the removed credential IDs.
+ */
+export declare function removeFastContextCredentials(api: CredentialStoreApi, credentialIDs: readonly string[]): Promise<string[]>;

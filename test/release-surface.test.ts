@@ -10,5 +10,7 @@ test("public package exports the OpenCode 2 server and TUI entrypoints", async (
   assert.ok(!JSON.stringify(pkg).toLowerCase().includes("clef"));
   assert.ok(pkg.files.every((entry: string) => entry.startsWith("dist/") || ["README.md", "CHANGELOG.md", "SECURITY.md", "LICENSE"].includes(entry)));
   assert.match(pkg.peerDependencies["@opencode/plugin"], /^\^2\./);
+  assert.ok(pkg.dependencies?.["@opentui/solid"], "the TUI JSX runtime must be a production dependency");
+  assert.ok(pkg.dependencies?.["solid-js"], "the TUI reactivity runtime must be a production dependency");
   assert.equal(pkg.devDependencies["@opencode-ai/plugin"], undefined);
 });

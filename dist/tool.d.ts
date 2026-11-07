@@ -12,9 +12,14 @@ export interface CredentialBroker {
     /**
      * Asks an interactive client for a key. Resolves "saved" after a verified
      * key was persisted, "cancelled" when the user dismissed the prompt, and
-     * "unavailable" when no interactive client can prompt.
+     * "unavailable" when no interactive client can prompt for this session.
      */
-    requestAuth?(reason: AuthRequestReason, signal?: AbortSignal): Promise<AuthRequestOutcome>;
+    requestAuth?(reason: AuthRequestReason, signal?: AbortSignal, sessionID?: string): Promise<AuthRequestOutcome>;
+    /**
+     * Records the active stored credential as rejected after a 401/403 so an
+     * attached client removes it. The server cannot delete credentials itself.
+     */
+    discardStored?(): Promise<void>;
 }
 export interface RunOptions {
     root: string;
@@ -24,6 +29,8 @@ export interface RunOptions {
     /** Internal test seam. Never populated from plugin options. */
     overrides?: ProviderOverrides;
     signal?: AbortSignal;
+    /** Session that invoked the tool; decides whether a prompt is interactive. */
+    sessionID?: string;
     /** Credential store and interactive prompt bridge; absent means env-only. */
     credentials?: CredentialBroker;
 }
