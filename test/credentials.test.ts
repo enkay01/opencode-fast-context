@@ -132,14 +132,27 @@ test("verifyApiKey reports unverified on server errors and network failure", asy
 });
 
 test("verifyApiKey reports unverified when the probe times out", async () => {
-  const result = await verifyApiKey("key", {
-    timeoutMs: 5,
-    fetchImpl: ((_url: unknown, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-      })) as typeof fetch,
-  });
-  assert.equal(result, "unverified");
+  let guard: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      verifyApiKey("key", {
+        timeoutMs: 5,
+        fetchImpl: ((_url: unknown, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          })) as typeof fetch,
+      }),
+      // AbortSignal.timeout uses an unref'd timer, so the mock's pending
+      // promise alone does not keep the test process alive. This ref'd timer
+      // both keeps the loop alive and fails fast if the probe never settles.
+      new Promise<never>((_resolve, reject) => {
+        guard = setTimeout(() => reject(new Error("verifyApiKey did not honor its timeout")), 1000);
+      }),
+    ]);
+    assert.equal(result, "unverified");
+  } finally {
+    if (guard) clearTimeout(guard);
+  }
 });
 
 test("verification errors never echo the submitted key", () => {
