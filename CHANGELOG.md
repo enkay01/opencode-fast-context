@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+Discovery and deadline fix.
+
+- The 10-second total search deadline is removed. A 30-second deadline now applies only to Jev ranking, so local discovery can finish instead of returning `fallback_required` mid-search.
+- Discovery runs one combined ripgrep pass per wave instead of one process per query term. A 12-token query that could spawn 27 `rg.exe` processes now uses one per wave.
+- Child processes spawn with `windowsHide: true`, so ripgrep and setup commands no longer flash console windows on Windows.
+- The per-request Jev timeout ceiling rises from 8 seconds to 30 seconds.
+
 ## 0.2.0
 
 Secure TypeSafe credential onboarding.
