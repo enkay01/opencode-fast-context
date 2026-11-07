@@ -10,6 +10,28 @@ import { TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA } from "../dist/tool.js";
 const DUMMY_KEY = "dummy-smoke-key";
 const root = await mkdtemp(join(tmpdir(), "fast-context-smoke-"));
 
+const integration = {
+  transform: async (fn) => {
+    fn({
+      update: (_id, apply) => apply({ id: "fast-context", name: "" }),
+      method: { update: () => undefined },
+    });
+    return { dispose: async () => undefined };
+  },
+  connection: {
+    active: async () => undefined,
+    resolve: async () => undefined,
+  },
+  connect: { key: async () => ({}) },
+};
+
+const rpc = {
+  register: async () => ({
+    dispose: async () => undefined,
+    events: { emit: async () => undefined },
+  }),
+};
+
 try {
   await mkdir(join(root, "src"), { recursive: true });
   await writeFile(join(root, "src", "retry.ts"), "export function retryDelay() { return 100 }\n");
@@ -34,6 +56,8 @@ try {
   await plugin.setup({
     location: { directory: root },
     options: {},
+    integration,
+    rpc,
     tool: {
       transform: async (fn) => {
         fn({
@@ -80,6 +104,8 @@ try {
   await plugin.setup({
     location: { directory: root },
     options: { autoInvoke: "off" },
+    integration,
+    rpc,
     tool: {
       transform: async (fn) => {
         fn({

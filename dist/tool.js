@@ -1,30 +1,106 @@
-import { resolveProvider } from "./config.js";
+import { resolveProviderAsync, } from "./config.js";
 import { searchRepository } from "./engine/search.js";
 import { normalizeAutoInvoke } from "./guidance.js";
+import { ProviderError } from "./providers/types.js";
+const AUTH_FAILURE_STATUSES = new Set([401, 403]);
+function isAuthFailure(error) {
+    return error instanceof ProviderError && error.status !== null && AUTH_FAILURE_STATUSES.has(error.status);
+}
+/** Wraps a provider so the first HTTP 401/403 surfaces to the caller. */
+function observeAuthFailures(provider, onAuthFailure) {
+    const wrap = (fn) => async (...args) => {
+        try {
+            return await fn(...args);
+        }
+        catch (error) {
+            if (isAuthFailure(error))
+                onAuthFailure(error.status ?? 0);
+            throw error;
+        }
+    };
+    return {
+        ...provider,
+        score: wrap(provider.score.bind(provider)),
+        ...(provider.choose ? { choose: wrap(provider.choose.bind(provider)) } : {}),
+    };
+}
+function fallbackResult(query, reason) {
+    return {
+        version: 1,
+        query,
+        status: "fallback_required",
+        results: [],
+        truncated: false,
+        candidateCount: 0,
+        searched: { candidates: 0, files: 0, truncated: false },
+        provider: { id: "none", model: null, usage: null },
+        timings: { discovery: 0, ranking: 0, total: 0 },
+        reason,
+    };
+}
+function authFailureReason(source, status) {
+    if (source === "env") {
+        return (`TYPESAFE_API_KEY was rejected by TypeSafe (HTTP ${status}). ` +
+            "Update the environment key; the stored OpenCode credential was left untouched.");
+    }
+    return (`The stored Fast Context credential was rejected by TypeSafe (HTTP ${status}). ` +
+        "Run /fast-context auth in OpenCode to replace it.");
+}
 export async function runFastContext(options) {
     const config = options.config ?? { autoInvoke: "suggest" };
-    const resolution = resolveProvider(process.env, options.overrides ?? {});
-    if (!resolution.provider) {
-        return {
-            version: 1,
-            query: options.query,
-            status: "fallback_required",
-            results: [],
-            truncated: false,
-            candidateCount: 0,
-            searched: { candidates: 0, files: 0, truncated: false },
-            provider: { id: "none", model: null, usage: null },
-            timings: { discovery: 0, ranking: 0, total: 0 },
-            reason: resolution.error ?? "Jev is not configured",
-        };
+    const overrides = options.overrides ?? {};
+    const credentials = options.credentials;
+    const storedKey = () => credentials?.resolveStored() ?? Promise.resolve(undefined);
+    const resolve = () => resolveProviderAsync(process.env, overrides, credentials ? storedKey : undefined);
+    let resolution = await resolve();
+    if (!resolution.provider && credentials?.requestAuth) {
+        const outcome = await credentials.requestAuth("missing", options.signal, options.sessionID);
+        if (outcome === "saved") {
+            resolution = await resolve();
+        }
     }
-    return searchRepository({
+    if (!resolution.provider) {
+        return fallbackResult(options.query, resolution.error ?? "Jev is not configured");
+    }
+    const runSearch = async (provider, onAuthFailure) => searchRepository({
         root: options.root,
         query: options.query,
         ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
-        provider: resolution.provider,
+        provider: observeAuthFailures(provider, onAuthFailure),
         ...(options.signal ? { signal: options.signal } : {}),
     });
+    let authStatus = null;
+    const capture = (status) => {
+        if (authStatus === null)
+            authStatus = status;
+    };
+    let result = await runSearch(resolution.provider, capture);
+    if (result.status === "fallback_required" && authStatus !== null && resolution.source === "store") {
+        try {
+            await credentials?.discardStored?.();
+        }
+        catch {
+            // Cleanup is best effort; the fallback reason still tells the user.
+        }
+        if (credentials?.requestAuth) {
+            const outcome = await credentials.requestAuth("expired", options.signal, options.sessionID);
+            if (outcome === "saved") {
+                const retry = await resolve();
+                if (retry.provider) {
+                    authStatus = null;
+                    result = await runSearch(retry.provider, capture);
+                    if (result.status === "fallback_required" && authStatus !== null) {
+                        return { ...result, reason: authFailureReason(retry.source, authStatus) };
+                    }
+                    return result;
+                }
+            }
+        }
+    }
+    if (result.status === "fallback_required" && authStatus !== null) {
+        return { ...result, reason: authFailureReason(resolution.source, authStatus) };
+    }
+    return result;
 }
 export function readAutoInvoke(config) {
     return normalizeAutoInvoke(config?.autoInvoke);

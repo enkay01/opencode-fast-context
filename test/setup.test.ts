@@ -50,6 +50,28 @@ test("setup is idempotent, preserves plugins, and never writes the credential", 
   }
 });
 
+test("setup succeeds without an environment credential and points at the TUI prompt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "fast-context-setup-"));
+  const env = {
+    ...process.env,
+    FAST_CONTEXT_SETUP_SKIP_CHECKS: "1",
+  };
+  delete env.TYPESAFE_API_KEY;
+  try {
+    const output = execFileSync(
+      "node",
+      [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "project", "--package", target],
+      { cwd: root, env, encoding: "utf8" },
+    );
+    assert.match(output, /Plugin id: fast-context/);
+    assert.match(output, /prompts in the OpenCode TUI/i);
+    const config = await readFile(join(root, "opencode.json"), "utf8");
+    assert.ok(config.includes(target));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("setup supports the global scope with XDG_CONFIG_HOME", async () => {
   const home = await mkdtemp(join(tmpdir(), "fast-context-home-"));
   const configHome = join(home, "config");

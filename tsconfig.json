@@ -12,6 +12,8 @@
     "newLine": "lf",
     "sourceMap": false,
     "declarationMap": false,
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/solid",
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true,
@@ -20,6 +22,6 @@
     "rewriteRelativeImportExtensions": true,
     "isolatedModules": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["bench", "test", "dist"]
 }
