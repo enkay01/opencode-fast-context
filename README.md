@@ -129,6 +129,8 @@ To use Gemini in a checkout containing this change, set `"decisionProvider": "ge
 
 Gemini uses `GEMINI_API_KEY` from the OpenCode server environment, then a separate OpenCode credential stored under `fast-context-gemini`, then a masked prompt in an interactive TUI. `/fast-context auth`, `auth status`, and `auth revoke` act on the selected provider. Existing TypeSafe credentials remain under `fast-context` and are retained when switching. Never put either key in plugin options, a repository file, or chat.
 
+To create a key and try the draft Gemini provider in a clean project checkout, run [`./scripts/gemini-self-test-wizard.sh`](scripts/gemini-self-test-wizard.sh). It hands key entry to OpenCode's masked prompt. See the [TUI recording plan](docs/GEMINI_TUI_RECORDING_PLAN.md) for reviewable PR evidence after authentication.
+
 `suggest` adds this guidance to model context:
 
 > For repository questions that require locating behavior across unknown files, call `fast_context_search` before broad iterative search. Do not call it when the user supplied the file, for a direct known-file read, or after it has already answered the question. If it returns `no_match` or `fallback_required`, continue with ordinary search.
