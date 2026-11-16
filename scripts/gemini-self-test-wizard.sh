@@ -267,6 +267,16 @@ await writeFile(path, updated);
 console.log(`Selected Gemini in ${path}; no key was written to this file.`);
 NODE
 )
+cat > "$TEST_ROOT/run-gemini-opencode.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "$ROOT/xdg-config"
+cd "$ROOT/checkout"
+XDG_CONFIG_HOME="$ROOT/xdg-config" opencode "$@"
+SH
+chmod +x "$TEST_ROOT/run-gemini-opencode.sh"
+say "The launcher isolates global OpenCode plugin configuration to prevent duplicate fast-context entries."
 pause "Press Enter to open the OpenCode TUI."
 
 stage "Authenticate and try one search"
@@ -275,11 +285,12 @@ step "Run /fast-context auth and paste the key into its masked prompt."
 step "Run /fast-context auth status; it should show the Gemini credential store."
 step "Ask: Use fast_context_search to locate the stale credential removal function. Show the provider and cited file paths."
 step "Exit OpenCode when you have inspected the result."
-(cd "$TEST_CHECKOUT" && opencode)
+"$TEST_ROOT/run-gemini-opencode.sh"
 pause "Press Enter after reviewing the TUI result."
 
 stage "Review and keep the test checkout"
 say "Test checkout: $TEST_CHECKOUT"
+say "Reopen this same test TUI with: $TEST_ROOT/run-gemini-opencode.sh"
 say "If the request fails, note only the HTTP status and tool status; never copy the key or source excerpts into a report."
 say "To remove this project plugin entry, run from the test checkout:"
 say "npm run setup:opencode -- --remove --scope project"
@@ -289,6 +300,7 @@ pause "Press Enter to finish."
 
 finish
 say "Test checkout: $TEST_CHECKOUT"
+say "OpenCode test launcher: $TEST_ROOT/run-gemini-opencode.sh"
 say "Plugin: fast-context (project scope). Remove with:"
 say "(cd '$TEST_CHECKOUT' && npm run setup:opencode -- --remove --scope project)"
 }

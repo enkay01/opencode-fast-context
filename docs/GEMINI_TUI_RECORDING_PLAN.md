@@ -6,7 +6,7 @@ This plan is for a human-run validation of draft PR #6. Run the key wizard first
 ./scripts/gemini-self-test-wizard.sh
 ```
 
-The wizard uses a clean PR checkout and saves the Gemini key only through OpenCode's masked credential prompt. Do not record the AI Studio key page, the auth prompt, or any key entry. The recording starts in a **new** OpenCode session after authentication. Use only the public test checkout for the free API tier. A Google AI Pro subscription does not set the API project's billing tier.
+The wizard uses a clean PR checkout and saves the Gemini key only through OpenCode's masked credential prompt. It prints a `run-gemini-opencode.sh` launcher in the test directory; use that launcher for every session. It isolates the global OpenCode plugin configuration, avoiding a duplicate `fast-context` server entry while retaining the normal credential store. Do not record the AI Studio key page, the auth prompt, or any key entry. The recording starts in a **new** OpenCode session after authentication. Use only the public test checkout for the free API tier. A Google AI Pro subscription does not set the API project's billing tier.
 
 ## Prerequisites
 
@@ -30,11 +30,12 @@ The existing automated tests cover malformed responses, 401/403 cleanup, cancell
 
 ## Capture and review
 
-From the wizard's clean checkout, after auth is complete and OpenCode is closed:
+After auth is complete and OpenCode is closed, set `TEST_LAUNCHER` to the absolute launcher path printed by the wizard:
 
 ```bash
 CAPTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fast-context-tui.XXXXXX")"
-asciinema rec -c opencode "$CAPTURE_DIR/take-01.cast"
+TEST_LAUNCHER="/path/printed/by/wizard/run-gemini-opencode.sh"
+asciinema rec -c "$TEST_LAUNCHER" "$CAPTURE_DIR/take-01.cast"
 asciinema play "$CAPTURE_DIR/take-01.cast"
 agg "$CAPTURE_DIR/take-01.cast" "$CAPTURE_DIR/take-01.gif"
 ```
