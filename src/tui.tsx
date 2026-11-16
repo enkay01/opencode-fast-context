@@ -124,8 +124,8 @@ export default Plugin.define({
   async setup(context) {
     const client = context.client.rpc(FastContextAuthRpc);
     const api = context.client;
-    const activeProvider = async (): Promise<"jev" | "gemini"> => {
-      const status = (await client.status({})) as { provider: "jev" | "gemini" };
+    const activeProvider = async (): Promise<"jev" | "gemini" | null> => {
+      const status = (await client.status({})) as { provider: "jev" | "gemini" | null };
       return status.provider;
     };
     const credentialID = (provider: "jev" | "gemini") => provider === "gemini" ? GEMINI_INTEGRATION_ID : FAST_CONTEXT_INTEGRATION_ID;
@@ -204,6 +204,7 @@ export default Plugin.define({
                 try {
                   const result = (await client.submitKey({
                     ...(options.requestId ? { requestId: options.requestId } : {}),
+                    provider: options.provider,
                     key,
                   })) as { ok: boolean; error?: string };
                   if (!result.ok) return result.error ?? "Could not save the key.";
@@ -271,26 +272,52 @@ export default Plugin.define({
 
     const showStatus = async () => {
       try {
-        const status = (await client.status({})) as { provider: "jev" | "gemini"; env: boolean; stored: boolean };
-        const envName = status.provider === "gemini" ? "GEMINI_API_KEY" : "TYPESAFE_API_KEY";
-        const sources: string[] = [];
-        if (status.env) sources.push(`process.env.${envName} (active; takes precedence)`);
-        if (status.stored) sources.push(`OpenCode credential store (${credentialID(status.provider)})`);
-        const lines = sources.map((source) => `- ${source}`);
+        const status = (await client.status({})) as {
+          provider: "jev" | "gemini" | null;
+          jev: { env: boolean; stored: boolean };
+          gemini: { env: boolean; stored: boolean };
+        };
+        const describe = (name: "jev" | "gemini") => {
+          const item = status[name];
+          return `${name}: ${item.env ? "environment key" : item.stored ? "stored key" : "no key"}${status.provider === name ? " (selected)" : ""}`;
+        };
         await context.ui.dialog.alert({
-          title: "Fast Context auth",
-          message:
-            sources.length === 0
-              ? `No ${status.provider} credential configured. Set ${envName} or run /fast-context auth to store a key.`
-              : [`Selected provider: ${status.provider}`, "Credential sources:", ...lines].join("\n"),
+          title: "Fast Context providers",
+          message: [`Selected: ${status.provider ?? "none"}`, describe("jev"), describe("gemini"),
+            "Use /fast-context provider to switch; /fast-context auth to set up the selected provider."].join("\n"),
         });
       } catch {
         context.ui.toast.show({ title: "Fast Context", message: "Could not read credential status.", variant: "error" });
       }
     };
 
-    const promptAndSave = async () => {
-      const provider = await activeProvider();
+    const chooseProvider = async (): Promise<"jev" | "gemini" | undefined> => {
+      const choice = await context.ui.dialog.select({
+        title: "Select Fast Context provider",
+        options: [
+          { title: "Gemini Decisions", value: "gemini" as const, description: "Google Gemini API key; Google receives bounded source excerpts" },
+          { title: "Jev", value: "jev" as const, description: "TypeSafe API key" },
+        ],
+      });
+      return choice;
+    };
+
+    const selectProvider = async (requested?: "jev" | "gemini") => {
+      const provider = requested ?? await chooseProvider();
+      if (!provider) return;
+      await client.selectProvider({ provider });
+      const status = (await client.status({})) as { jev: { env: boolean; stored: boolean }; gemini: { env: boolean; stored: boolean } };
+      if (!status[provider].env && !status[provider].stored) {
+        await promptAndSave(provider);
+      } else {
+        context.ui.toast.show({ title: "Fast Context", message: `${provider} selected.`, variant: "success" });
+      }
+    };
+
+    const promptAndSave = async (requested?: "jev" | "gemini") => {
+      const provider = requested ?? await activeProvider() ?? await chooseProvider();
+      if (!provider) return;
+      if (!requested && !(await activeProvider())) await client.selectProvider({ provider });
       const outcome = await collectKey({
         provider,
         title: "Store a Fast Context credential",
@@ -303,8 +330,9 @@ export default Plugin.define({
       }
     };
 
-    const revoke = async () => {
-      const provider = await activeProvider();
+    const revoke = async (requested?: "jev" | "gemini") => {
+      const provider = requested ?? await activeProvider() ?? await chooseProvider();
+      if (!provider) return;
       const confirmed = await context.ui.dialog.confirm({
         title: "Revoke Fast Context credential?",
         message: `This removes stored ${provider} keys only. The environment key and other provider's keys are not affected.`,
@@ -322,19 +350,22 @@ export default Plugin.define({
     const runAuthCommand = async (input: string) => {
       const command = parseAuthCommand(input ?? "");
       switch (command.action) {
+        case "select":
+          await selectProvider(command.provider);
+          return;
         case "set":
-          await promptAndSave();
+          await promptAndSave(command.provider);
           return;
         case "status":
           await showStatus();
           return;
         case "revoke":
-          await revoke();
+          await revoke(command.provider);
           return;
         case "help":
           await context.ui.dialog.alert({
             title: "Fast Context auth",
-            message: "/fast-context auth - store or replace the selected provider key\n/fast-context auth status - show selected credential sources\n/fast-context auth revoke - remove the selected provider's stored keys",
+            message: "/fast-context provider - select Jev or Gemini\n/fast-context auth - set up the selected provider\n/fast-context auth gemini - set up Gemini directly\n/fast-context auth status - show both providers\n/fast-context auth revoke - remove the selected provider's stored keys",
           });
           return;
         case "unknown":
@@ -352,7 +383,7 @@ export default Plugin.define({
         {
           id: "fast-context.auth",
           title: "Fast Context auth",
-          description: "Store, inspect, or revoke the selected provider credential",
+          description: "Choose Jev or Gemini, then manage each credential",
           group: "Fast Context",
           palette: true,
           slash: { name: "fast-context", arguments: true },

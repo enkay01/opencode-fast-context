@@ -236,37 +236,9 @@ git clone --depth=1 --branch codex/gemini-decisions-provider \
   npm run setup:opencode -- --scope project
 )
 say "Plugin ID: fast-context; scope: this test checkout only."
-pause "Press Enter to select Gemini in its project configuration."
+pause "Press Enter to prepare the single-plugin TUI launcher."
 
-stage "Select Gemini for this checkout"
-(
-  cd "$TEST_CHECKOUT"
-  node --input-type=module <<'NODE'
-import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { isFastContextEntry, parseConfig, pluginEntries, writePlugins } from "./scripts/setup-opencode.mjs";
-
-const path = ["opencode.jsonc", "opencode.json"].map((name) => join(process.cwd(), name)).find(existsSync);
-if (!path) throw new Error("project OpenCode configuration was not created");
-const source = await readFile(path, "utf8");
-const target = pathToFileURL(process.cwd()).href;
-let matched = 0;
-const entries = pluginEntries(parseConfig(source)).map((entry) => {
-  if (!isFastContextEntry(entry, target)) return entry;
-  matched++;
-  const item = typeof entry === "string" ? { package: entry } : entry;
-  const options = item.options && typeof item.options === "object" && !Array.isArray(item.options) ? item.options : {};
-  return { ...item, options: { ...options, decisionProvider: "gemini" } };
-});
-if (matched !== 1) throw new Error(`expected one Fast Context entry, found ${matched}`);
-const updated = writePlugins(source, entries);
-parseConfig(updated);
-await writeFile(path, updated);
-console.log(`Selected Gemini in ${path}; no key was written to this file.`);
-NODE
-)
+stage "Prepare one plugin entrypoint"
 cat > "$TEST_ROOT/run-gemini-opencode.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -279,11 +251,12 @@ chmod +x "$TEST_ROOT/run-gemini-opencode.sh"
 say "The launcher isolates global OpenCode plugin configuration to prevent duplicate fast-context entries."
 pause "Press Enter to open the OpenCode TUI."
 
-stage "Authenticate and try one search"
+stage "Select Gemini and try one search"
 say "OpenCode will start in the clean checkout. Nothing is recorded during auth."
-step "Run /fast-context auth and paste the key into its masked prompt."
-step "Run /fast-context auth status; it should show the Gemini credential store."
+step "Run /fast-context provider and select Gemini Decisions. Paste the key into its masked prompt."
+step "Run /fast-context auth status; it should show Gemini selected and both provider credential states."
 step "Ask: Use fast_context_search to locate the stale credential removal function. Show the provider and cited file paths."
+step "Run /fast-context provider, select Jev, cancel its key prompt, then select Gemini again without restarting."
 step "Exit OpenCode when you have inspected the result."
 "$TEST_ROOT/run-gemini-opencode.sh"
 pause "Press Enter after reviewing the TUI result."

@@ -1,5 +1,6 @@
 import { Rpc } from "@opencode/plugin";
 
+const PROVIDER = { type: "string", enum: ["jev", "gemini"] } as const;
 const EMPTY_OBJECT = {
   type: "object",
   properties: {},
@@ -67,13 +68,19 @@ export const FastContextAuthRpc = Rpc.define({
       output: {
         type: "object",
         properties: {
-          provider: { type: "string", enum: ["jev", "gemini"] },
+          provider: { type: ["string", "null"], enum: ["jev", "gemini", null] },
           env: { type: "boolean" },
           stored: { type: "boolean" },
+          jev: { type: "object", properties: { env: { type: "boolean" }, stored: { type: "boolean" } }, required: ["env", "stored"], additionalProperties: false },
+          gemini: { type: "object", properties: { env: { type: "boolean" }, stored: { type: "boolean" } }, required: ["env", "stored"], additionalProperties: false },
         },
-        required: ["provider", "env", "stored"],
+        required: ["provider", "env", "stored", "jev", "gemini"],
         additionalProperties: false,
       },
+    },
+    selectProvider: {
+      input: { type: "object", properties: { provider: PROVIDER }, required: ["provider"], additionalProperties: false },
+      output: { type: "object", properties: { provider: PROVIDER }, required: ["provider"], additionalProperties: false },
     },
     /**
      * Verifies a candidate key against TypeSafe, persists it through the
@@ -85,9 +92,10 @@ export const FastContextAuthRpc = Rpc.define({
         type: "object",
         properties: {
           requestId: { type: "string" },
+          provider: PROVIDER,
           key: { type: "string", minLength: 1, maxLength: 512 },
         },
-        required: ["key"],
+        required: ["key", "provider"],
         additionalProperties: false,
       },
       output: {
@@ -131,9 +139,11 @@ export const FastContextAuthRpc = Rpc.define({
 export type AuthRequestReason = "missing" | "expired";
 
 export interface AuthStatus {
-  provider: "jev" | "gemini";
+  provider: "jev" | "gemini" | null;
   env: boolean;
   stored: boolean;
+  jev: { env: boolean; stored: boolean };
+  gemini: { env: boolean; stored: boolean };
 }
 
 export interface SubmitKeyResult {

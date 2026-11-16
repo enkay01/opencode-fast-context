@@ -26,7 +26,7 @@ interface EmittedRequest {
   reason: string;
 }
 
-function makeContext(root: string, options?: { storedKey?: string; storedGeminiKey?: string; decisionProvider?: "jev" | "gemini" }) {
+function makeContext(root: string, options?: { storedKey?: string; storedGeminiKey?: string; decisionProvider?: "jev" | "gemini" | null; savedProvider?: "jev" | "gemini" }) {
   const tools: Array<{ name: string; execute: (input: unknown, ctx: unknown) => Promise<{ content: string }> }> = [];
   const handlers = new Map<string, (input: unknown) => Promise<unknown>>();
   const emitted: EmittedRequest[] = [];
@@ -35,7 +35,11 @@ function makeContext(root: string, options?: { storedKey?: string; storedGeminiK
   let activeGeminiKey = options?.storedGeminiKey;
 
   const context = {
-    options: options?.decisionProvider ? { decisionProvider: options.decisionProvider } : {},
+    options: options?.decisionProvider === null ? {} : { decisionProvider: options?.decisionProvider ?? "jev" },
+    storage: {
+      get: async () => options?.savedProvider,
+      set: async (_key: string, value: "jev" | "gemini") => { if (options) options.savedProvider = value; },
+    },
     location: { directory: root },
     integration: {
       transform: async (fn: (editor: unknown) => void) => {
@@ -331,7 +335,9 @@ test("status reports credential sources without exposing values and detach disab
       await plugin.setup(context as never);
 
       const status = (await handlers.get("status")!({})) as { provider: string; env: boolean; stored: boolean };
-      assert.deepEqual(status, { provider: "jev", env: false, stored: false });
+      assert.equal(status.provider, "jev");
+      assert.deepEqual(status.jev, { env: false, stored: false });
+      assert.deepEqual(status.gemini, { env: Boolean(process.env.GEMINI_API_KEY), stored: false });
 
       await handlers.get("attach")!({ sessions: [SESSION] });
       await handlers.get("detach")!({});
@@ -375,4 +381,41 @@ test("Gemini prompt verifies and stores only its own key, then search uses Gemin
     if (previous !== undefined) process.env.GEMINI_API_KEY = previous;
     await fixture.cleanup();
   }
+});
+
+test("one plugin switches providers and retains the choice without mixing credentials", async () => {
+  const previousGemini = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  await withoutEnv(async () => {
+    const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
+    const restore = stubFetch({ systemone: jevOk });
+    const options: { storedKey: string; storedGeminiKey: string; decisionProvider: null; savedProvider?: "jev" | "gemini" } = {
+      storedKey: "jev-key", storedGeminiKey: "gemini-key", decisionProvider: null,
+    };
+    try {
+      const first = makeContext(fixture.root, options);
+      const dispose = await plugin.setup(first.context as never);
+      const unselected = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
+      assert.match(unselected.content, /Select Jev or Gemini/);
+      await first.handlers.get("selectProvider")!({ provider: "gemini" });
+      const gemini = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
+      assert.match(gemini.content, /provider: gemini:gemini-decision-1/);
+      await first.handlers.get("selectProvider")!({ provider: "jev" });
+      const jev = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
+      assert.match(jev.content, /provider: jev:/);
+      await first.handlers.get("selectProvider")!({ provider: "gemini" });
+      await dispose?.();
+
+      const reloaded = makeContext(fixture.root, options);
+      await plugin.setup(reloaded.context as never);
+      const status = (await reloaded.handlers.get("status")!({})) as { provider: string; jev: { stored: boolean }; gemini: { stored: boolean } };
+      assert.equal(status.provider, "gemini");
+      assert.equal(status.jev.stored, true);
+      assert.equal(status.gemini.stored, true);
+    } finally {
+      restore();
+      await fixture.cleanup();
+    }
+  });
+  if (previousGemini !== undefined) process.env.GEMINI_API_KEY = previousGemini;
 });

@@ -7,11 +7,15 @@ Allow Fast Context users to choose a supported decision service for bounded repo
 ## ADDED Requirements
 
 ### Requirement: Explicit provider selection
-The plugin SHALL accept `decisionProvider` with values `jev` and `gemini`, default to `jev` when absent, and reject an unsupported value without sending source content to either service.
+The plugin SHALL provide one TUI entrypoint to select `jev` or `gemini`, persist that selection in OpenCode storage, and allow switching without a restart. An optional `decisionProvider` value provides the initial selection; an unsupported value SHALL fail without sending source to either service. Without an initial or stored selection, no source SHALL be sent until the user selects a provider.
 
 #### Scenario: Existing configuration
 - **WHEN** a user has no `decisionProvider` option
-- **THEN** searches use Jev with the existing TypeSafe credential behavior
+- **THEN** `/fast-context provider` opens a provider picker and unselected searches ask for selection without outbound work
+
+#### Scenario: Switch in the TUI
+- **WHEN** the user selects Gemini, then Jev, then Gemini again
+- **THEN** each subsequent search uses the chosen provider, both credentials remain separate, and the last choice survives a plugin reload
 
 #### Scenario: Select Gemini
 - **WHEN** `decisionProvider` is `gemini`

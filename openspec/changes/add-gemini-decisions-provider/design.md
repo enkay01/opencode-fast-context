@@ -16,7 +16,7 @@ Google documents `POST https://generativelanguage.googleapis.com/v1beta/decision
 
 ### 1. Resolve the provider from a public enum
 
-Accept `decisionProvider: "jev" | "gemini"`, defaulting to Jev. Reject invalid values explicitly before resolving credentials or searching; do not silently default to Jev because the selected service receives code. Resolve the provider once per tool invocation and retain that choice through missing-key handling and a 401/403 retry. The result metadata extends the provider ID union with `gemini`, leaving the search tool input and result version unchanged. An object-form OpenCode plugin option is sufficient for switching; changing it takes effect at plugin reload, with no per-query provider field.
+Use one plugin instance with a TUI provider picker. Persist the selected provider in OpenCode storage; an optional `decisionProvider` option initializes a fresh installation, but a subsequent TUI choice wins. Reject invalid values explicitly. With no selection, return setup guidance before resolving credentials or sending source. Snapshot the selection per tool invocation through missing-key handling and 401/403 retry. The result metadata extends the provider ID union with `gemini`, leaving the search tool input and result version unchanged.
 
 Alternative considered: choose whichever key exists. This would unexpectedly change the source recipient and make results hard to reproduce.
 
@@ -56,4 +56,4 @@ Google's reported 150–250 ms end-to-end request latency is a service claim und
 
 ## Migration Plan
 
-Add the option and Gemini credential integration without modifying existing `fast-context` stored keys. Existing installs remain on Jev; switching to Gemini requires an explicit plugin option and its own key. Switching back uses the still-stored TypeSafe credential. Rollback is setting the option to `jev` or removing it; no migration of keys or repository data is needed. Do not publish comparative performance claims until the paired benchmark meets its stated evidence standard.
+Add the Gemini credential integration without modifying existing `fast-context` stored keys. Select either provider from `/fast-context provider` and onboard its own key; switching back uses the still-stored TypeSafe credential. Remove the provider option to use TUI selection. No migration of keys or repository data is needed. Do not publish comparative performance claims until the paired benchmark meets its stated evidence standard.

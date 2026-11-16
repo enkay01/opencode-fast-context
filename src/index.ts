@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin";
 import { createAuthBroker } from "./auth-broker.ts";
 import { FastContextAuthRpc } from "./auth-rpc.ts";
-import { readPublicConfig } from "./config.ts";
+import { readPublicConfig, type ProviderKind } from "./config.ts";
 import {
   FAST_CONTEXT_INTEGRATION_ID,
   GEMINI_INTEGRATION_ID,
@@ -27,22 +27,24 @@ export default Plugin.define({
   id: "fast-context",
   async setup(ctx: Plugin.Context) {
     const config = readPublicConfig(ctx.options as Record<string, unknown> | undefined);
-    const selected = config.decisionProvider ?? "jev";
-    const integrationID = selected === "gemini" ? GEMINI_INTEGRATION_ID : FAST_CONTEXT_INTEGRATION_ID;
+    const storedSelection = await ctx.storage.get("selectedProvider");
+    let selected: ProviderKind | null = storedSelection === "jev" || storedSelection === "gemini"
+      ? storedSelection : config.decisionProvider ?? null;
     const root = ctx.location.project?.directory || ctx.location.directory;
     const integration = ctx.integration as unknown as IntegrationCredentialApi;
+    const integrationID = (provider: ProviderKind) => provider === "gemini" ? GEMINI_INTEGRATION_ID : FAST_CONTEXT_INTEGRATION_ID;
 
-    const auth = createAuthBroker({
+    const makeBroker = (provider: ProviderKind) => createAuthBroker({
       resolveStored: async () => {
         try {
-          return await resolveStoredApiKey(integration, integrationID);
+          return await resolveStoredApiKey(integration, integrationID(provider));
         } catch {
           return undefined;
         }
       },
       activeCredentialID: async () => {
         try {
-          const connection = await integration.connection.active(integrationID);
+          const connection = await integration.connection.active(integrationID(provider));
           if (connection?.type !== "credential" || typeof connection.id !== "string") return undefined;
           return connection.id;
         } catch {
@@ -50,6 +52,7 @@ export default Plugin.define({
         }
       },
     });
+    const auth = { jev: makeBroker("jev"), gemini: makeBroker("gemini") };
 
     const integrationRegistration = await registerFastContextIntegration(integration);
     const geminiRegistration = await registerFastContextIntegration(integration, "gemini");
@@ -57,47 +60,61 @@ export default Plugin.define({
     const rpcRegistration = await ctx.rpc.register(FastContextAuthRpc, {
       attach: async (input) => {
         const { sessions } = input as { sessions: string[] };
-        return auth.attach(sessions);
+        return { remove: [...auth.jev.attach(sessions).remove, ...auth.gemini.attach(sessions).remove] };
       },
       detach: async () => {
-        auth.detach();
+        auth.jev.detach();
+        auth.gemini.detach();
         return {};
       },
       acknowledge: async (input) => {
         const { credentialIDs } = input as { credentialIDs: string[] };
-        auth.acknowledge(credentialIDs);
+        auth.jev.acknowledge(credentialIDs);
+        auth.gemini.acknowledge(credentialIDs);
         return { ok: true };
       },
-      status: async () => ({
-        provider: selected,
-        env: Boolean(selected === "gemini" ? process.env.GEMINI_API_KEY : process.env.TYPESAFE_API_KEY),
-        stored: await hasStoredCredential(integration, integrationID),
-      }),
+      status: async () => {
+        const jev = { env: Boolean(process.env.TYPESAFE_API_KEY), stored: await hasStoredCredential(integration, FAST_CONTEXT_INTEGRATION_ID) };
+        const gemini = { env: Boolean(process.env.GEMINI_API_KEY), stored: await hasStoredCredential(integration, GEMINI_INTEGRATION_ID) };
+        return { provider: selected, env: selected ? (selected === "jev" ? jev : gemini).env : false,
+          stored: selected ? (selected === "jev" ? jev : gemini).stored : false, jev, gemini };
+      },
+      selectProvider: async (input) => {
+        const { provider } = input as { provider: ProviderKind };
+        await ctx.storage.set("selectedProvider", provider);
+        selected = provider;
+        return { provider };
+      },
       submitKey: async (input) => {
-        const { requestId, key } = input as { requestId?: string; key: string };
-        const verification = selected === "gemini" ? await verifyGeminiApiKey(key) : await verifyApiKey(key);
+        const { requestId, key, provider: requested } = input as { requestId?: string; key: string; provider?: ProviderKind };
+        const provider = requested ?? selected;
+        if (!provider) return { ok: false, error: "Select a provider before storing a key." };
+        const verification = provider === "gemini" ? await verifyGeminiApiKey(key) : await verifyApiKey(key);
         if (verification !== "valid") {
-          return { ok: false, error: selected === "gemini"
+          return { ok: false, error: provider === "gemini"
             ? verification === "invalid" ? "Google rejected this Gemini API key (HTTP 401/403)." : "Could not verify this Gemini API key with Google. Try again."
             : verificationErrorMessage(verification) };
         }
         try {
-          await storeApiKey(integration, key, integrationID);
+          await storeApiKey(integration, key, integrationID(provider));
         } catch {
           return { ok: false, error: "OpenCode could not store the credential. Try again." };
         }
-        auth.clearRejected();
-        if (requestId) auth.settle(requestId, "saved");
+        auth[provider].clearRejected();
+        if (requestId) auth[provider].settle(requestId, "saved");
         return { ok: true };
       },
       cancel: async (input) => {
         const { requestId } = input as { requestId: string };
-        return auth.settle(requestId, "cancelled");
+        auth.jev.settle(requestId, "cancelled");
+        return auth.gemini.settle(requestId, "cancelled");
       },
     });
-    auth.setEmit(async (event) => {
-      await rpcRegistration.events.emit("request", { ...event, provider: selected } as unknown as Readonly<Record<string, unknown>>);
-    });
+    for (const provider of ["jev", "gemini"] as const) {
+      auth[provider].setEmit(async (event) => {
+        await rpcRegistration.events.emit("request", { ...event, provider } as unknown as Readonly<Record<string, unknown>>);
+      });
+    }
 
     const toolRegistration = await ctx.tool.transform((editor) => {
       editor.add({
@@ -107,15 +124,17 @@ export default Plugin.define({
         options: { codemode: false },
         execute: async (rawInput, toolContext) => {
           const input = rawInput as { query: string; maxFiles?: number };
-          const result = await runFastContext({
+          const choice = selected;
+          const result = choice ? await runFastContext({
             root,
             query: input.query,
-            config,
-            credentials: auth.broker,
+            config: { ...config, decisionProvider: choice },
+            credentials: auth[choice].broker,
             sessionID: toolContext.sessionID,
             ...(input.maxFiles ? { maxFiles: input.maxFiles } : {}),
             ...(toolContext.signal ? { signal: toolContext.signal } : {}),
-          });
+          }) : await runFastContext({ root, query: input.query,
+            config: { ...config, providerError: "Select Jev or Gemini with /fast-context provider before searching." } });
           return {
             content: formatForModel(result),
             metadata: { fast_context: result },
@@ -132,7 +151,8 @@ export default Plugin.define({
           });
 
     return async () => {
-      auth.dispose();
+      auth.jev.dispose();
+      auth.gemini.dispose();
       await guidanceRegistration?.dispose();
       await toolRegistration.dispose();
       await rpcRegistration.dispose();

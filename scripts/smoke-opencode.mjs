@@ -31,6 +31,7 @@ const rpc = {
     events: { emit: async () => undefined },
   }),
 };
+const storage = { get: async () => undefined, set: async () => undefined };
 
 try {
   await mkdir(join(root, "src"), { recursive: true });
@@ -55,7 +56,8 @@ try {
   const hooks = [];
   await plugin.setup({
     location: { directory: root },
-    options: {},
+    options: { decisionProvider: "jev" },
+    storage,
     integration,
     rpc,
     tool: {
@@ -103,6 +105,7 @@ try {
   const offHooks = [];
   await plugin.setup({
     location: { directory: root },
+    storage,
     options: { autoInvoke: "off" },
     integration,
     rpc,

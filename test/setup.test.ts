@@ -50,7 +50,7 @@ test("setup is idempotent, preserves plugins, and never writes the credential", 
   }
 });
 
-test("setup succeeds without an environment credential and points at the TUI prompt", async () => {
+test("setup succeeds without an environment credential and points at provider selection", async () => {
   const root = await mkdtemp(join(tmpdir(), "fast-context-setup-"));
   const env = {
     ...process.env,
@@ -64,7 +64,7 @@ test("setup succeeds without an environment credential and points at the TUI pro
       { cwd: root, env, encoding: "utf8" },
     );
     assert.match(output, /Plugin id: fast-context/);
-    assert.match(output, /prompts in the OpenCode TUI/i);
+    assert.match(output, /fast-context provider in the TUI/i);
     const config = await readFile(join(root, "opencode.json"), "utf8");
     assert.ok(config.includes(target));
   } finally {

@@ -2,7 +2,7 @@
 
 ## 1. Provider option and transport
 
-- [x] 1.1 Add `decisionProvider` parsing and provider identity types, preserving Jev as default and rejecting unknown values before any outbound request; verify configuration and no-request tests pass.
+- [x] 1.1 Add provider identity types, an optional initial selection, persistent TUI selection, and rejection of unknown values before outbound work; verify no-selection and switching tests pass.
 - [x] 1.2 Implement `gemini-decision-1` REST scoring with the fixed Google endpoint, `noul` criteria translation, finite response validation, deadlines, cancellation, partial results, and usage aggregation; verify request/response/error fixture tests pass.
 - [x] 1.3 Implement optional directory choice with bounded stable option IDs and valid-result mapping; verify tests cover unknown IDs, long paths, and the existing opt-in gate.
 - [ ] 1.4 Wire Gemini into search execution with a separately configured relevance threshold while retaining Jev's 0.15 and result version; verify ranking, abstention, and fallback tests with both providers.
@@ -24,4 +24,4 @@
 
 ## 4. Integration gate
 
-- [ ] 4.1 Run typecheck, tests, release verification, and OpenCode smoke flows for Jev default, Gemini selection, switching back, missing keys, and provider failure; verify all commands succeed and no credential or unredacted source appears in output.
+- [ ] 4.1 Run typecheck, tests, release verification, and OpenCode smoke flows for unselected onboarding, Gemini selection, switching to Jev and back, missing keys, and provider failure; verify all commands succeed and no credential or unredacted source appears in output.

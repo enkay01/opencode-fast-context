@@ -7,6 +7,7 @@ import { makeFixture } from "./fixture.ts";
 interface FakeContext {
   location: { directory: string };
   options?: Record<string, unknown>;
+  storage: { get: (key: string) => Promise<undefined>; set: (key: string, value: string) => Promise<void> };
   integration: {
     transform: (fn: (editor: {
       update: (id: string, fn: (item: { id: string; name: string }) => void) => void;
@@ -43,6 +44,7 @@ function makeContext(root: string, options?: Record<string, unknown>) {
   const context: FakeContext = {
     location: { directory: root },
     ...(options ? { options } : {}),
+    storage: { get: async () => undefined, set: async () => undefined },
     integration: {
       transform: async (fn) => {
         const editor = {

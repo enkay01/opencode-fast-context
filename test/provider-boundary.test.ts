@@ -9,7 +9,7 @@ import { makeFixture } from "./fixture.ts";
 const SECRET = "sk_live_abcdefghijklmnop";
 
 test("public provider option defaults to Jev and rejects unknown values before retrieval", async () => {
-  assert.equal(readPublicConfig(undefined).decisionProvider, "jev");
+  assert.equal(readPublicConfig(undefined).decisionProvider, undefined);
   assert.equal(readPublicConfig({ decisionProvider: "gemini" }).decisionProvider, "gemini");
   const config = readPublicConfig({ decisionProvider: "unexpected" });
   const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });

@@ -13,8 +13,16 @@ test("the optional auth word is accepted only in front", () => {
   assert.deepEqual(parseAuthCommand("auth set"), { action: "set" });
   assert.deepEqual(parseAuthCommand("status"), { action: "status" });
   assert.deepEqual(parseAuthCommand("revoke"), { action: "revoke" });
-  assert.deepEqual(parseAuthCommand(""), { action: "set" });
-  assert.deepEqual(parseAuthCommand("   "), { action: "set" });
+  assert.deepEqual(parseAuthCommand(""), { action: "select" });
+  assert.deepEqual(parseAuthCommand("   "), { action: "select" });
+});
+
+test("provider selection and separate onboarding are explicit", () => {
+  assert.deepEqual(parseAuthCommand("provider"), { action: "select" });
+  assert.deepEqual(parseAuthCommand("use gemini"), { action: "select", provider: "gemini" });
+  assert.deepEqual(parseAuthCommand("auth gemini"), { action: "set", provider: "gemini" });
+  assert.deepEqual(parseAuthCommand("auth set jev"), { action: "set", provider: "jev" });
+  assert.deepEqual(parseAuthCommand("auth revoke gemini"), { action: "revoke", provider: "gemini" });
 });
 
 test("aliases and case are normalized", () => {

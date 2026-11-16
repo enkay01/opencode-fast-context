@@ -36,8 +36,8 @@ function printHelp() {
   console.log(`Usage: npm run setup:opencode -- [--scope project|global] [--package <spec>] [--remove]
 
 Registers the Fast Context plugin in OpenCode 2 configuration.
-A missing TYPESAFE_API_KEY is allowed; the plugin prompts in the OpenCode TUI on the first search.
-It never accepts, reads, prints, or writes TYPESAFE_API_KEY.
+No provider key is needed at setup. Choose Jev or Gemini with /fast-context provider in the TUI.
+It never accepts, reads, prints, or writes a provider key.
 `);
 }
 
@@ -356,8 +356,8 @@ async function main() {
 
   if (!args.remove && !args.allowMissingCredential && !credentialPresent()) {
     console.log(
-      "note: TYPESAFE_API_KEY is not set. The plugin prompts for a TypeSafe key inside the OpenCode TUI " +
-        "on the first search; headless runs return fallback_required until a key is stored.",
+      "note: TYPESAFE_API_KEY is not set. Select Jev or Gemini with /fast-context provider in the OpenCode TUI; " +
+        "headless runs return fallback_required until a provider and its key are configured.",
     );
   }
 
@@ -441,7 +441,7 @@ async function main() {
   console.log(`${upgraded ? "Updated" : "Added"} ${target} in ${config.path}.`);
   console.log(`Plugin id: ${PLUGIN_ID}`);
   console.log(
-    `TYPESAFE_API_KEY: ${credentialPresent() ? "present" : "missing (the plugin prompts in the OpenCode TUI on first search)"}`,
+    `TYPESAFE_API_KEY: ${credentialPresent() ? "present" : "missing"}; choose Jev or Gemini with /fast-context provider in the TUI.`,
   );
   console.log(`Restart OpenCode from the same environment.`);
   console.log(`Remove with: npm run setup:opencode -- --remove --scope ${args.scope}`);

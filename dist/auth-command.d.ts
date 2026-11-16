@@ -1,14 +1,10 @@
-/**
- * Parses the argument text OpenCode hands to the `fast-context` slash command.
- *
- * OpenCode passes everything after the slash name, so `/fast-context auth
- * status` arrives as `auth status`. The documented forms include the optional
- * `auth` word, so it is consumed before the action is read.
- */
+import type { ProviderKind } from "./config.ts";
 export type AuthCommand = {
-    action: "set" | "status" | "revoke" | "help";
+    action: "select" | "set" | "status" | "revoke" | "help";
+    provider?: ProviderKind;
 } | {
     action: "unknown";
     token: string;
 };
+/** `/fast-context` opens the picker; provider names can target either credential directly. */
 export declare function parseAuthCommand(input: string): AuthCommand;

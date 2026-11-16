@@ -33,11 +33,11 @@ export interface ProviderOverrides {
 
 export function readPublicConfig(options: Record<string, unknown> | undefined): FastContextConfig {
   const config: FastContextConfig = { autoInvoke: normalizeAutoInvoke(options?.autoInvoke) };
-  if (options?.decisionProvider === undefined || options.decisionProvider === "jev") {
+  if (options?.decisionProvider === "jev") {
     config.decisionProvider = "jev";
-  } else if (options.decisionProvider === "gemini") {
+  } else if (options?.decisionProvider === "gemini") {
     config.decisionProvider = "gemini";
-  } else {
+  } else if (options?.decisionProvider !== undefined) {
     config.providerError = 'Invalid decisionProvider: use "jev" or "gemini".';
   }
   return config;
