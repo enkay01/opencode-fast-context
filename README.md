@@ -123,6 +123,11 @@ Optional plugin options:
 | Option | Values | Default | Meaning |
 | --- | --- | --- | --- |
 | `autoInvoke` | `"suggest"` or `"off"` | `"suggest"` | Adds one session instruction telling the model when to call `fast_context_search`. |
+| `decisionProvider` | `"jev"` or `"gemini"` | `"jev"` | Selects TypeSafe Jev or Google Gemini Decisions for ranking. An invalid value fails before source is sent. |
+
+To use Gemini in a checkout containing this change, set `"decisionProvider": "gemini"` in the plugin's `options` object and restart OpenCode. Switching back to Jev removes that option or sets it to `"jev"`. The selected service receives the query and bounded excerpts only after a visible tool call. The search result names the provider. No automatic provider switch occurs on error.
+
+Gemini uses `GEMINI_API_KEY` from the OpenCode server environment, then a separate OpenCode credential stored under `fast-context-gemini`, then a masked prompt in an interactive TUI. `/fast-context auth`, `auth status`, and `auth revoke` act on the selected provider. Existing TypeSafe credentials remain under `fast-context` and are retained when switching. Never put either key in plugin options, a repository file, or chat.
 
 `suggest` adds this guidance to model context:
 
@@ -142,13 +147,19 @@ Before sending, the plugin:
 
 Redaction is defence in depth, not a guarantee that arbitrary source contains no confidential material. For repositories that must stay local, set `autoInvoke: "off"` and do not call the tool, or remove the plugin.
 
+## Data sent to Google when Gemini is selected
+
+The same bounded query and source excerpts go to Google's Gemini Developer API (`v1beta/decisions`, model `gemini-decision-1`). Google's [Gemini API terms](https://aistudio.google.com/docs/terms) state that free-tier input and output may be used to improve products and reviewed by humans. Do not submit sensitive or confidential source to the free tier. For a billing-enabled API project, Google says it does not use prompts or responses to improve products, but logs them for a limited period for abuse monitoring. Check the current terms and your repository's data policy before selecting Gemini. Existing redaction is defense in depth, not proof that source is nonconfidential.
+
+Google's published request latency is not a Fast Context benchmark. The provider comparison and calibration remain pending live paired runs; see [BENCHMARK.md](BENCHMARK.md). Gemini's score distribution must be calibrated independently of Jev before relying on absent-answer claims.
+
 ## Results
 
 The tool returns one of:
 
 - `complete`: retrieval completed with checked citations and short excerpts;
 - `no_match`: no relevant evidence was selected in the searched scope;
-- `fallback_required`: Jev is unavailable or misconfigured; continue with ordinary search.
+- `fallback_required`: the selected provider is unavailable or misconfigured; continue with ordinary search.
 
 Intermediate grep output and provider exchanges stay out of the conversation.
 
@@ -165,6 +176,7 @@ Use `--scope project` if it was installed locally. Restart OpenCode after changi
 - **Tool missing after install**: restart the background service with `opencode service restart`, then start a new session. Existing sessions keep their old tool catalog. `opencode plugin list` does not show local-path plugins; use `opencode api GET /api/plugin` instead.
 - **Key works in a terminal but not the app**: the `opencode` shell wrapper only affects processes launched from that shell. The background service and a Dock-launched app do not inherit it. Restart the service from the wrapped shell, or launch OpenCode from that terminal.
 - **`TYPESAFE_API_KEY is not set`**: export the key in the environment that launches OpenCode, or run `/fast-context auth` in the TUI to store one. Do not add it to configuration.
+- **`GEMINI_API_KEY is not set`**: with Gemini selected, set it in the OpenCode server environment or run `/fast-context auth` in the TUI. Google errors do not cause a silent fallback to TypeSafe.
 - **Prompt never appears**: the TUI part of the plugin must be loaded. Check `opencode plugin list`, restart the TUI, and confirm the session is interactive. Headless runs intentionally skip the prompt.
 - **Frequent `fallback_required`**: check provider status and the configured model. Ordinary search is unaffected.
 - **`no_match` on a real target**: the searched candidate pool did not contain a passing match. Try more specific identifiers or inspect the relevant directories.

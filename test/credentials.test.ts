@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   FAST_CONTEXT_INTEGRATION_ID,
+  GEMINI_INTEGRATION_ID,
   fastContextCredentialEntries,
   hasStoredCredential,
   registerFastContextIntegration,
@@ -13,6 +14,7 @@ import {
   storeApiKey,
   verificationErrorMessage,
   verifyApiKey,
+  verifyGeminiApiKey,
   type CredentialEntryLike,
   type IntegrationCredentialApi,
 } from "../src/credentials.ts";
@@ -67,6 +69,24 @@ test("registers the fast-context integration with a key method", async () => {
     },
   ]);
   await registration.dispose();
+});
+
+test("registers Gemini separately and verifies model access without repository content", async () => {
+  const { api, stored } = makeIntegration();
+  await registerFastContextIntegration(api, "gemini");
+  const calls = (api as { __calls?: unknown[] }).__calls ?? [];
+  assert.equal((calls[0] as string[])[1], GEMINI_INTEGRATION_ID);
+  let sent = "";
+  const result = await verifyGeminiApiKey("dummy", { fetchImpl: (async (_url, init) => {
+    sent = String(init?.body);
+    return new Response(JSON.stringify({ answers: { damaged: { type: "noul", noul: 0.9 } } }), { status: 200 });
+  }) as typeof fetch });
+  assert.equal(result, "valid");
+  assert.match(sent, /gemini-decision-1/);
+  assert.ok(!sent.includes("src/"));
+  await storeApiKey(api, "gemini-only", GEMINI_INTEGRATION_ID);
+  assert.equal(stored[0]?.integrationID, GEMINI_INTEGRATION_ID);
+  assert.equal(await verifyGeminiApiKey("dummy", { fetchImpl: (async () => new Response("", { status: 403 })) as typeof fetch }), "invalid");
 });
 
 test("resolveStoredApiKey returns the active key credential", async () => {
@@ -248,4 +268,15 @@ test("queued rejected IDs remove only matching Fast Context records", async () =
   ]);
   assert.deepEqual(await removeFastContextCredentials(store.api, ["rejected", "other", "missing"]), ["rejected"]);
   assert.deepEqual(store.entries.map((item) => item.id), ["active", "other"]);
+});
+
+test("Gemini replacement and revocation leave TypeSafe records in place", async () => {
+  const store = recordList([
+    entry("jev", FAST_CONTEXT_INTEGRATION_ID, true),
+    entry("gemini-old", GEMINI_INTEGRATION_ID),
+    entry("gemini-new", GEMINI_INTEGRATION_ID, true),
+  ]);
+  assert.deepEqual(await removeStaleFastContextCredentials(store.api, GEMINI_INTEGRATION_ID), ["gemini-old"]);
+  assert.deepEqual(await removeAllFastContextCredentials(store.api, GEMINI_INTEGRATION_ID), ["gemini-new"]);
+  assert.deepEqual(store.entries.map((item) => item.id), ["jev"]);
 });

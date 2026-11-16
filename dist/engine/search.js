@@ -10,13 +10,14 @@ export async function searchRepository(options) {
         ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
     };
     const stage = limits.ablationStage ?? "climb3";
+    const minDecision = options.provider?.minDecision === undefined ? limits.minDecision : options.provider.minDecision;
     const deadline = limits.deadlineMs !== undefined ? started + limits.deadlineMs : undefined;
     const query = options.query.trim();
     const diagnostics = {
         poolFiles: [],
         ranked: [],
         abstained: false,
-        abstainThreshold: limits.minDecision,
+        abstainThreshold: minDecision,
         discoveryTimedOut: false,
         redactedCandidates: 0,
         rejectedCandidates: 0,
@@ -202,7 +203,7 @@ export async function searchRepository(options) {
             const siblings = secondaryByPath.get(candidate.path) ?? [];
             for (const sib of siblings.slice(1, 3)) {
                 const allowSibling = candidate.decisionScore !== null
-                    ? (sib.decisionScore !== null && sib.decisionScore >= limits.minDecision) ||
+                    ? (sib.decisionScore !== null && (minDecision === null || sib.decisionScore >= minDecision)) ||
                         sib.lexicalScore >= candidate.lexicalScore * 0.72
                     : sib.lexicalScore >= candidate.lexicalScore * 0.68;
                 if (allowSibling) {
@@ -243,7 +244,7 @@ export async function searchRepository(options) {
             truncated = true;
     }
     const topDecision = ranked.find((candidate) => candidate.decisionScore !== null)?.decisionScore ?? null;
-    if (options.provider && status !== "fallback_required" && topDecision !== null && topDecision < limits.minDecision) {
+    if (options.provider && minDecision !== null && status !== "fallback_required" && topDecision !== null && topDecision < minDecision) {
         diagnostics.abstained = true;
         diagnostics.ranked = ranked.slice(0, 64).map((candidate) => ({
             path: candidate.path,

@@ -4,6 +4,7 @@ import { parseAuthCommand } from "./auth-command.ts";
 import { FastContextAuthRpc } from "./auth-rpc.ts";
 import {
   FAST_CONTEXT_INTEGRATION_ID,
+  GEMINI_INTEGRATION_ID,
   removeAllFastContextCredentials,
   removeFastContextCredentials,
   removeStaleFastContextCredentials,
@@ -17,6 +18,7 @@ const PROMPT_FOOTER = `Enter to save · Esc to cancel · input shows ${SECRET_MA
 interface AuthRequestEvent {
   requestId: string;
   reason: "missing" | "expired";
+  provider: "jev" | "gemini";
 }
 
 /**
@@ -25,6 +27,7 @@ interface AuthRequestEvent {
  * host renderer; only the host-owned dialog shell renders it.
  */
 function MaskedKeyPrompt(props: {
+  provider: "jev" | "gemini";
   title: string;
   description: string;
   placeholder?: string;
@@ -46,7 +49,7 @@ function MaskedKeyPrompt(props: {
 
   const showBusy = (value: boolean) => {
     busy = value;
-    if (footerText) footerText.content = busy ? "Verifying with TypeSafe…" : PROMPT_FOOTER;
+    if (footerText) footerText.content = busy ? `Verifying with ${props.provider === "gemini" ? "Google" : "TypeSafe"}…` : PROMPT_FOOTER;
   };
 
   const handleInput = () => {
@@ -65,7 +68,7 @@ function MaskedKeyPrompt(props: {
     if (busy) return;
     const key = mask.secret;
     if (!key) {
-      showError("Enter your TypeSafe API key.");
+      showError(`Enter your ${props.provider === "gemini" ? "Gemini" : "TypeSafe"} API key.`);
       return;
     }
     showBusy(true);
@@ -103,7 +106,7 @@ function MaskedKeyPrompt(props: {
           input = el;
           if (el) setTimeout(() => el.focus(), 1);
         }}
-        placeholder={props.placeholder ?? "TypeSafe API key"}
+        placeholder={props.placeholder ?? (props.provider === "gemini" ? "Gemini API key" : "TypeSafe API key")}
         maxLength={512}
         onInput={handleInput}
         onSubmit={() => void handleSubmit()}
@@ -121,6 +124,11 @@ export default Plugin.define({
   async setup(context) {
     const client = context.client.rpc(FastContextAuthRpc);
     const api = context.client;
+    const activeProvider = async (): Promise<"jev" | "gemini"> => {
+      const status = (await client.status({})) as { provider: "jev" | "gemini" };
+      return status.provider;
+    };
+    const credentialID = (provider: "jev" | "gemini") => provider === "gemini" ? GEMINI_INTEGRATION_ID : FAST_CONTEXT_INTEGRATION_ID;
 
     /** Root sessions this TUI is showing. Subagent sessions never prompt. */
     const interactiveSessions = (): string[] => {
@@ -169,6 +177,7 @@ export default Plugin.define({
 
     /** Shows the masked prompt; resolves after save or cancel. */
     const collectKey = (options: {
+      provider: "jev" | "gemini";
       title: string;
       description: string;
       requestId?: string;
@@ -188,6 +197,7 @@ export default Plugin.define({
         context.ui.dialog.show(
           () => (
             <MaskedKeyPrompt
+              provider={options.provider}
               title={options.title}
               description={options.description}
               submit={async (key) => {
@@ -198,7 +208,7 @@ export default Plugin.define({
                   })) as { ok: boolean; error?: string };
                   if (!result.ok) return result.error ?? "Could not save the key.";
                   try {
-                    await removeStaleFastContextCredentials(api.credential);
+                    await removeStaleFastContextCredentials(api.credential, credentialID(options.provider));
                   } catch {
                     // The new key is active; stale rows are retried on the next save.
                   }
@@ -239,20 +249,19 @@ export default Plugin.define({
           try {
             // Remove the rejected record before offering a replacement so a
             // cancelled prompt cannot leave the dead key resolvable.
-            await removeAllFastContextCredentials(api.credential);
+            await removeAllFastContextCredentials(api.credential, credentialID(event.provider));
           } catch {
             // The prompt still offers a replacement key.
           }
         }
-        const title =
-          event.reason === "expired"
-            ? "Fast Context credential expired"
-            : "Connect Fast Context to TypeSafe";
-        const description =
-          event.reason === "expired"
+        const service = event.provider === "gemini" ? "Google" : "TypeSafe";
+        const title = event.reason === "expired" ? `Fast Context ${service} credential expired` : `Connect Fast Context to ${service}`;
+        const description = event.provider === "gemini"
+          ? "Google receives bounded query and source excerpts. Free-tier data may be reviewed and used to improve products; see aistudio.google.com/docs/terms. The key is verified and stored in OpenCode."
+          : event.reason === "expired"
             ? "The stored key was rejected by TypeSafe. Enter a replacement key; it is verified live and saved in OpenCode's credential store."
             : "Fast Context needs a TypeSafe API key for Jev ranking. Enter it once; it is verified live and saved in OpenCode's credential store, not in this project.";
-        await collectKey({ title, description, requestId: event.requestId });
+        await collectKey({ title, description, provider: event.provider, requestId: event.requestId });
       });
     };
 
@@ -262,17 +271,18 @@ export default Plugin.define({
 
     const showStatus = async () => {
       try {
-        const status = (await client.status({})) as { env: boolean; stored: boolean };
+        const status = (await client.status({})) as { provider: "jev" | "gemini"; env: boolean; stored: boolean };
+        const envName = status.provider === "gemini" ? "GEMINI_API_KEY" : "TYPESAFE_API_KEY";
         const sources: string[] = [];
-        if (status.env) sources.push("process.env.TYPESAFE_API_KEY (active; takes precedence)");
-        if (status.stored) sources.push(`OpenCode credential store (${FAST_CONTEXT_INTEGRATION_ID})`);
+        if (status.env) sources.push(`process.env.${envName} (active; takes precedence)`);
+        if (status.stored) sources.push(`OpenCode credential store (${credentialID(status.provider)})`);
         const lines = sources.map((source) => `- ${source}`);
         await context.ui.dialog.alert({
           title: "Fast Context auth",
           message:
             sources.length === 0
-              ? "No credential configured. Set TYPESAFE_API_KEY or run /fast-context auth to store a key."
-              : ["Credential sources:", ...lines].join("\n"),
+              ? `No ${status.provider} credential configured. Set ${envName} or run /fast-context auth to store a key.`
+              : [`Selected provider: ${status.provider}`, "Credential sources:", ...lines].join("\n"),
         });
       } catch {
         context.ui.toast.show({ title: "Fast Context", message: "Could not read credential status.", variant: "error" });
@@ -280,10 +290,13 @@ export default Plugin.define({
     };
 
     const promptAndSave = async () => {
+      const provider = await activeProvider();
       const outcome = await collectKey({
+        provider,
         title: "Store a Fast Context credential",
-        description:
-          "Enter your TypeSafe API key. It is verified live, then saved in OpenCode's credential store. The key is never written to this project or your shell profile.",
+        description: provider === "gemini"
+          ? "Enter your Gemini API key. Google receives bounded source excerpts. Free-tier data may be reviewed and used to improve products; see aistudio.google.com/docs/terms. The key is stored in OpenCode."
+          : "Enter your TypeSafe API key. It is verified live, then saved in OpenCode's credential store. The key is never written to this project or your shell profile.",
       });
       if (outcome === "saved") {
         context.ui.toast.show({ title: "Fast Context", message: "Credential updated.", variant: "success" });
@@ -291,14 +304,15 @@ export default Plugin.define({
     };
 
     const revoke = async () => {
+      const provider = await activeProvider();
       const confirmed = await context.ui.dialog.confirm({
         title: "Revoke Fast Context credential?",
-        message: "This removes every Fast Context key stored in OpenCode's credential store. TYPESAFE_API_KEY in the environment is not affected.",
+        message: `This removes stored ${provider} keys only. The environment key and other provider's keys are not affected.`,
         label: { confirm: "Revoke", cancel: "Keep" },
       });
       if (!confirmed) return;
       try {
-        await removeAllFastContextCredentials(api.credential);
+        await removeAllFastContextCredentials(api.credential, credentialID(provider));
         context.ui.toast.show({ title: "Fast Context", message: "Stored credential revoked.", variant: "success" });
       } catch {
         context.ui.toast.show({ title: "Fast Context", message: "Could not revoke the credential.", variant: "error" });
@@ -320,7 +334,7 @@ export default Plugin.define({
         case "help":
           await context.ui.dialog.alert({
             title: "Fast Context auth",
-            message: "/fast-context auth - store or replace the TypeSafe key\n/fast-context auth status - show credential sources\n/fast-context auth revoke - remove stored keys",
+            message: "/fast-context auth - store or replace the selected provider key\n/fast-context auth status - show selected credential sources\n/fast-context auth revoke - remove the selected provider's stored keys",
           });
           return;
         case "unknown":
@@ -338,7 +352,7 @@ export default Plugin.define({
         {
           id: "fast-context.auth",
           title: "Fast Context auth",
-          description: "Store, inspect, or revoke the TypeSafe credential",
+          description: "Store, inspect, or revoke the selected provider credential",
           group: "Fast Context",
           palette: true,
           slash: { name: "fast-context", arguments: true },

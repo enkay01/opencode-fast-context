@@ -63,10 +63,11 @@ export const FastContextAuthRpc = Rpc.define({
             output: {
                 type: "object",
                 properties: {
+                    provider: { type: "string", enum: ["jev", "gemini"] },
                     env: { type: "boolean" },
                     stored: { type: "boolean" },
                 },
-                required: ["env", "stored"],
+                required: ["provider", "env", "stored"],
                 additionalProperties: false,
             },
         },
@@ -114,8 +115,9 @@ export const FastContextAuthRpc = Rpc.define({
                 properties: {
                     requestId: { type: "string" },
                     reason: { type: "string", enum: ["missing", "expired"] },
+                    provider: { type: "string", enum: ["jev", "gemini"] },
                 },
-                required: ["requestId", "reason"],
+                required: ["requestId", "reason", "provider"],
                 additionalProperties: false,
             },
         },

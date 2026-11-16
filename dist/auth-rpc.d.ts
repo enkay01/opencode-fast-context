@@ -94,6 +94,10 @@ export declare const FastContextAuthRpc: {
             readonly output: {
                 readonly type: "object";
                 readonly properties: {
+                    readonly provider: {
+                        readonly type: "string";
+                        readonly enum: readonly ["jev", "gemini"];
+                    };
                     readonly env: {
                         readonly type: "boolean";
                     };
@@ -101,7 +105,7 @@ export declare const FastContextAuthRpc: {
                         readonly type: "boolean";
                     };
                 };
-                readonly required: readonly ["env", "stored"];
+                readonly required: readonly ["provider", "env", "stored"];
                 readonly additionalProperties: false;
             };
         };
@@ -177,8 +181,12 @@ export declare const FastContextAuthRpc: {
                         readonly type: "string";
                         readonly enum: readonly ["missing", "expired"];
                     };
+                    readonly provider: {
+                        readonly type: "string";
+                        readonly enum: readonly ["jev", "gemini"];
+                    };
                 };
-                readonly required: readonly ["requestId", "reason"];
+                readonly required: readonly ["requestId", "reason", "provider"];
                 readonly additionalProperties: false;
             };
         };
@@ -186,6 +194,7 @@ export declare const FastContextAuthRpc: {
 };
 export type AuthRequestReason = "missing" | "expired";
 export interface AuthStatus {
+    provider: "jev" | "gemini";
     env: boolean;
     stored: boolean;
 }

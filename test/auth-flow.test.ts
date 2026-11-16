@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import plugin from "../src/index.ts";
-import { FAST_CONTEXT_INTEGRATION_ID } from "../src/credentials.ts";
+import { FAST_CONTEXT_INTEGRATION_ID, GEMINI_INTEGRATION_ID } from "../src/credentials.ts";
 import { makeFixture } from "./fixture.ts";
 
 const MODELS_URL = "https://api.typesafe.ai/v1/models";
 const SYSTEMONE_URL = "https://api.typesafe.ai/v1/systemone";
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/decisions";
 const SESSION = "session-tui";
 const HEADLESS = "session-headless";
 
@@ -25,14 +26,16 @@ interface EmittedRequest {
   reason: string;
 }
 
-function makeContext(root: string, options?: { storedKey?: string }) {
+function makeContext(root: string, options?: { storedKey?: string; storedGeminiKey?: string; decisionProvider?: "jev" | "gemini" }) {
   const tools: Array<{ name: string; execute: (input: unknown, ctx: unknown) => Promise<{ content: string }> }> = [];
   const handlers = new Map<string, (input: unknown) => Promise<unknown>>();
   const emitted: EmittedRequest[] = [];
   const stored: Array<{ integrationID: string; key: string }> = [];
   let activeKey = options?.storedKey;
+  let activeGeminiKey = options?.storedGeminiKey;
 
   const context = {
+    options: options?.decisionProvider ? { decisionProvider: options.decisionProvider } : {},
     location: { directory: root },
     integration: {
       transform: async (fn: (editor: unknown) => void) => {
@@ -44,14 +47,17 @@ function makeContext(root: string, options?: { storedKey?: string }) {
         return { dispose: async () => undefined };
       },
       connection: {
-        active: async () => (activeKey === undefined ? undefined : { type: "credential", id: "cred-1" }),
-        resolve: async () =>
-          activeKey === undefined ? undefined : { type: "key", key: activeKey },
+        active: async (id: string) => ((id === GEMINI_INTEGRATION_ID ? activeGeminiKey : activeKey) === undefined ? undefined : { type: "credential", id: id === GEMINI_INTEGRATION_ID ? "cred-gemini" : "cred-1" }),
+        resolve: async (connection: { id: string }) => {
+          const key = connection.id === "cred-gemini" ? activeGeminiKey : activeKey;
+          return key === undefined ? undefined : { type: "key", key };
+        },
       },
       connect: {
         key: async (input: { integrationID: string; key: string }) => {
           stored.push(input);
-          activeKey = input.key;
+          if (input.integrationID === GEMINI_INTEGRATION_ID) activeGeminiKey = input.key;
+          else activeKey = input.key;
           return {};
         },
       },
@@ -91,12 +97,14 @@ async function waitForRequests(emitted: EmittedRequest[], count: number) {
 function stubFetch(handlers: {
   models?: () => Response;
   systemone?: () => Response;
+  decisions?: (input?: RequestInit) => Response;
 }) {
   const original = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === MODELS_URL) return (handlers.models ?? (() => new Response("{}", { status: 200 })))();
     if (url === SYSTEMONE_URL) return (handlers.systemone ?? jevOk)();
+    if (url === GEMINI_URL) return (handlers.decisions ?? (() => new Response(JSON.stringify({ answers: { relevant: { type: "noul", noul: 0.9 } } }), { status: 200 })))(init);
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return () => {
@@ -322,8 +330,8 @@ test("status reports credential sources without exposing values and detach disab
       const { context, tools, handlers, emitted } = makeContext(fixture.root);
       await plugin.setup(context as never);
 
-      const status = (await handlers.get("status")!({})) as { env: boolean; stored: boolean };
-      assert.deepEqual(status, { env: false, stored: false });
+      const status = (await handlers.get("status")!({})) as { provider: string; env: boolean; stored: boolean };
+      assert.deepEqual(status, { provider: "jev", env: false, stored: false });
 
       await handlers.get("attach")!({ sessions: [SESSION] });
       await handlers.get("detach")!({});
@@ -335,4 +343,36 @@ test("status reports credential sources without exposing values and detach disab
       await fixture.cleanup();
     }
   });
+});
+
+test("Gemini prompt verifies and stores only its own key, then search uses Gemini", async () => {
+  const previous = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
+  const restore = stubFetch({ decisions: (init) => {
+    const body = JSON.parse(String(init?.body)) as { questions: { damaged?: unknown } };
+    return new Response(JSON.stringify({ answers: body.questions.damaged
+      ? { damaged: { type: "noul", noul: 0.9 } }
+      : { relevant: { type: "noul", noul: 0.9 } } }), { status: 200 });
+  } });
+  try {
+    const { context, tools, handlers, emitted, stored } = makeContext(fixture.root, { decisionProvider: "gemini", storedKey: "jev-stays" });
+    await plugin.setup(context as never);
+    const status = (await handlers.get("status")!({})) as { provider: string; stored: boolean };
+    assert.equal(status.provider, "gemini");
+    assert.equal(status.stored, false);
+    await handlers.get("attach")!({ sessions: [SESSION] });
+    const pending = tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
+    await waitForRequests(emitted, 1);
+    assert.equal((emitted[0] as EmittedRequest & { provider: string }).provider, "gemini");
+    const accepted = (await handlers.get("submitKey")!({ requestId: emitted[0]!.requestId, key: "gemini-stored" })) as { ok: boolean };
+    assert.equal(accepted.ok, true);
+    assert.equal(stored[0]?.integrationID, GEMINI_INTEGRATION_ID);
+    const result = await pending;
+    assert.match(result.content, /provider: gemini:gemini-decision-1/);
+  } finally {
+    restore();
+    if (previous !== undefined) process.env.GEMINI_API_KEY = previous;
+    await fixture.cleanup();
+  }
 });

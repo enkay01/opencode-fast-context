@@ -8,7 +8,8 @@
   "arms": [
     "none",
     "jev",
-    "clef"
+    "clef",
+    "gemini"
   ],
   "stages": [
     "v0",
@@ -68,6 +69,22 @@
       "parent": "WIP-climb2",
       "mechanism": "three disjoint windows per file plus context enrichment",
       "predictedMetric": "range coverage given file",
+      "registered": true
+    },
+    {
+      "id": "GEMINI-PER-CANDIDATE",
+      "generation": "provider-comparison",
+      "parent": "WIP-climb3",
+      "mechanism": "Gemini Decisions independent relevance requests",
+      "predictedMetric": "provider latency and calibrated relevance",
+      "registered": true
+    },
+    {
+      "id": "GEMINI-MULTI-QUESTION",
+      "generation": "provider-comparison",
+      "parent": "GEMINI-PER-CANDIDATE",
+      "mechanism": "one Gemini request with isolated questions over shared candidates",
+      "predictedMetric": "request latency and token use without relevance loss",
       "registered": true
     }
   ]

@@ -103,8 +103,8 @@ test("OpenCode 2 setup registers the tool and one replayable guidance hook", asy
 
     assert.equal(tools.length, 1);
     assert.equal(tools[0].name, "fast_context_search");
-    assert.deepEqual(integrations, ["fast-context"]);
-    assert.equal(methods.length, 1);
+    assert.deepEqual(integrations, ["fast-context", "fast-context-gemini"]);
+    assert.equal(methods.length, 2);
 
     assert.equal(hooks.length, 1);
     const originalFetch = globalThis.fetch;

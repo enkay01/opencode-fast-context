@@ -35,8 +35,10 @@ export interface ChooseResult {
     model: string;
 }
 export interface DecisionProvider {
-    id: "jev" | "clef";
+    id: "jev" | "clef" | "gemini";
     model: string;
+    /** null disables score-based abstention until this model has been calibrated. */
+    minDecision?: number | null;
     /** Optional cap on how many candidates this provider can rank inside the deadline. */
     maxCandidates?: number;
     score(query: string, candidates: ScoreCandidate[], options: ScoreOptions): Promise<ScoreResult>;

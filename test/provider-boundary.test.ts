@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveProvider } from "../src/config.ts";
+import { readPublicConfig, resolveProvider } from "../src/config.ts";
 import { formatForModel, runFastContext } from "../src/tool.ts";
 import { searchRepository } from "../src/engine/search.ts";
 import type { DecisionProvider } from "../src/providers/types.ts";
 import { makeFixture } from "./fixture.ts";
 
 const SECRET = "sk_live_abcdefghijklmnop";
+
+test("public provider option defaults to Jev and rejects unknown values before retrieval", async () => {
+  assert.equal(readPublicConfig(undefined).decisionProvider, "jev");
+  assert.equal(readPublicConfig({ decisionProvider: "gemini" }).decisionProvider, "gemini");
+  const config = readPublicConfig({ decisionProvider: "unexpected" });
+  const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
+  try {
+    const result = await runFastContext({ root: fixture.root, query: "retryDelay", config });
+    assert.equal(result.status, "fallback_required");
+    assert.match(result.reason ?? "", /decisionProvider/);
+    assert.equal(result.searched.candidates, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
 
 test("missing TYPESAFE_API_KEY is a configuration failure, not a local fallback", async () => {
   const resolution = resolveProvider({});

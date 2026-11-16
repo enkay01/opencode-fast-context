@@ -4,11 +4,13 @@ import { FastContextAuthRpc } from "./auth-rpc.ts";
 import { readPublicConfig } from "./config.ts";
 import {
   FAST_CONTEXT_INTEGRATION_ID,
+  GEMINI_INTEGRATION_ID,
   hasStoredCredential,
   registerFastContextIntegration,
   resolveStoredApiKey,
   storeApiKey,
   verifyApiKey,
+  verifyGeminiApiKey,
   verificationErrorMessage,
   type IntegrationCredentialApi,
 } from "./credentials.ts";
@@ -25,20 +27,22 @@ export default Plugin.define({
   id: "fast-context",
   async setup(ctx: Plugin.Context) {
     const config = readPublicConfig(ctx.options as Record<string, unknown> | undefined);
+    const selected = config.decisionProvider ?? "jev";
+    const integrationID = selected === "gemini" ? GEMINI_INTEGRATION_ID : FAST_CONTEXT_INTEGRATION_ID;
     const root = ctx.location.project?.directory || ctx.location.directory;
     const integration = ctx.integration as unknown as IntegrationCredentialApi;
 
     const auth = createAuthBroker({
       resolveStored: async () => {
         try {
-          return await resolveStoredApiKey(integration);
+          return await resolveStoredApiKey(integration, integrationID);
         } catch {
           return undefined;
         }
       },
       activeCredentialID: async () => {
         try {
-          const connection = await integration.connection.active(FAST_CONTEXT_INTEGRATION_ID);
+          const connection = await integration.connection.active(integrationID);
           if (connection?.type !== "credential" || typeof connection.id !== "string") return undefined;
           return connection.id;
         } catch {
@@ -48,6 +52,7 @@ export default Plugin.define({
     });
 
     const integrationRegistration = await registerFastContextIntegration(integration);
+    const geminiRegistration = await registerFastContextIntegration(integration, "gemini");
 
     const rpcRegistration = await ctx.rpc.register(FastContextAuthRpc, {
       attach: async (input) => {
@@ -64,17 +69,20 @@ export default Plugin.define({
         return { ok: true };
       },
       status: async () => ({
-        env: Boolean(process.env.TYPESAFE_API_KEY),
-        stored: await hasStoredCredential(integration),
+        provider: selected,
+        env: Boolean(selected === "gemini" ? process.env.GEMINI_API_KEY : process.env.TYPESAFE_API_KEY),
+        stored: await hasStoredCredential(integration, integrationID),
       }),
       submitKey: async (input) => {
         const { requestId, key } = input as { requestId?: string; key: string };
-        const verification = await verifyApiKey(key);
+        const verification = selected === "gemini" ? await verifyGeminiApiKey(key) : await verifyApiKey(key);
         if (verification !== "valid") {
-          return { ok: false, error: verificationErrorMessage(verification) };
+          return { ok: false, error: selected === "gemini"
+            ? verification === "invalid" ? "Google rejected this Gemini API key (HTTP 401/403)." : "Could not verify this Gemini API key with Google. Try again."
+            : verificationErrorMessage(verification) };
         }
         try {
-          await storeApiKey(integration, key);
+          await storeApiKey(integration, key, integrationID);
         } catch {
           return { ok: false, error: "OpenCode could not store the credential. Try again." };
         }
@@ -88,7 +96,7 @@ export default Plugin.define({
       },
     });
     auth.setEmit(async (event) => {
-      await rpcRegistration.events.emit("request", event as unknown as Readonly<Record<string, unknown>>);
+      await rpcRegistration.events.emit("request", { ...event, provider: selected } as unknown as Readonly<Record<string, unknown>>);
     });
 
     const toolRegistration = await ctx.tool.transform((editor) => {
@@ -129,6 +137,7 @@ export default Plugin.define({
       await toolRegistration.dispose();
       await rpcRegistration.dispose();
       await integrationRegistration.dispose();
+      await geminiRegistration.dispose();
     };
   },
 });
