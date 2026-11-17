@@ -27,7 +27,7 @@ It does not build an index, write to the repository, run a background process, o
 - OpenCode 2 (`>=2.2.0 <3`); tested with 2.2.5.
 - Node 22.18 or newer for local setup and development.
 - `ripgrep` (`rg`) on `PATH`.
-- A TypeSafe API key, supplied either through `TYPESAFE_API_KEY` or through OpenCode's credential store (see [Credential](#credential)).
+- A key for the provider you choose in OpenCode, supplied through its environment variable or OpenCode's credential store (see [Credential](#credential)).
 
 ## Install
 
@@ -50,7 +50,7 @@ npm run verify:release
 npm run setup:opencode -- --scope global
 ```
 
-`setup:opencode` adds the absolute checkout path to the global OpenCode configuration, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope project` for a project-local install. A TypeSafe key is not required at setup time: the plugin prompts for it in the OpenCode TUI on the first interactive search.
+`setup:opencode` adds the absolute checkout path to the global OpenCode configuration, preserves existing plugins, verifies the plugin ID, and prints the removal command. Re-running it is a no-op. Use `--scope project` for a project-local install. No key is required at setup: choose a provider with `/fast-context provider` in the TUI, then enter its key in the masked prompt.
 
 ### One-shot instruction for an agent
 
@@ -60,7 +60,7 @@ The root [AGENTS.md](AGENTS.md) tells an assigned agent to run:
 npm ci && npm run verify:release && npm run setup:opencode -- --scope project
 ```
 
-The agent must never request the key value in chat or write it to a file. If `TYPESAFE_API_KEY` is absent, the plugin prompts for the key inside the OpenCode TUI on the first search instead.
+The agent must never request the key value in chat or write it to a file. The user selects a provider and enters its key inside the OpenCode TUI.
 
 ## Credential
 
@@ -82,7 +82,7 @@ The environment key always wins. A stored credential is only consulted when no e
 
 ### Interactive onboarding
 
-When an interactive OpenCode session runs `fast_context_search` with no usable key, the plugin emits a TUI prompt. The input is masked, the key is verified live against TypeSafe before anything is stored, and a rejected key shows an inline error without being saved. Dismissing the prompt returns `fallback_required` and the search continues with ordinary tools.
+Run `/fast-context provider` to choose Jev or Gemini in the TUI. A provider without a key opens its own masked prompt. The key is verified live with the chosen service before anything is stored; a rejected key shows an inline error without being saved. Cancelling a switch keeps the previous provider active. A selected provider without a usable key returns `fallback_required` so ordinary tools can continue. The sidebar shows the active provider and its connection state; a key listed as present is not necessarily verified.
 
 A stored key that TypeSafe later rejects (HTTP 401 or 403) is treated as expired: the stale record is removed before the replacement prompt appears on the next search. If no interactive client can prompt, the record is removed when one next attaches and the search returns `fallback_required`.
 
@@ -92,9 +92,10 @@ The key is persisted only through OpenCode's native integration credential store
 
 In the OpenCode TUI:
 
-- `/fast-context auth` stores or replaces the key through the same masked, verified prompt;
-- `/fast-context auth status` shows which credential sources are configured, without exposing values;
-- `/fast-context auth revoke` removes every Fast Context record from the credential store after confirmation. `TYPESAFE_API_KEY` is not affected.
+- `/fast-context provider` chooses the active provider and starts its onboarding when needed;
+- `/fast-context auth` stores or replaces the selected provider's key; `/fast-context auth gemini` verifies its key and activates Gemini;
+- `/fast-context auth status` shows both credential sources without exposing values;
+- `/fast-context auth revoke` removes the selected provider's stored key after confirmation. Environment keys and the other provider's records are unaffected.
 
 Headless runs (`opencode run`, background jobs, subagents, or sessions the TUI is not showing) never block on a prompt. They return `fallback_required` immediately when no credential resolves. A rejected stored key is removed when an interactive client next attaches.
 
@@ -123,6 +124,13 @@ Optional plugin options:
 | Option | Values | Default | Meaning |
 | --- | --- | --- | --- |
 | `autoInvoke` | `"suggest"` or `"off"` | `"suggest"` | Adds one session instruction telling the model when to call `fast_context_search`. |
+| `decisionProvider` | `"jev"` or `"gemini"` | none | Optional initial selection. An invalid value fails before source is sent. |
+
+Run `/fast-context provider` in the OpenCode TUI to select Jev or Gemini. If that provider has no credential, its own masked onboarding prompt opens. A successful key setup activates the provider and confirms persisted status; a cancelled or failed switch retains the previous choice. `/fast-context auth gemini` and `/fast-context auth set jev` each set up and activate the named provider. Without a selection, a search asks you to select a provider and sends no source. The optional `decisionProvider` plugin option sets an initial selection; omit it to control selection in the TUI. No automatic provider switch occurs on error.
+
+Gemini uses `GEMINI_API_KEY` from the OpenCode server environment, then a separate OpenCode credential stored under `fast-context-gemini`, then a masked prompt in an interactive TUI. `/fast-context auth status` shows both credential states; `/fast-context auth revoke` removes only the selected provider's stored key. Existing TypeSafe credentials remain under `fast-context` and are retained when switching. Never put either key in plugin options, a repository file, or chat.
+
+Use [TUI validation](docs/TUI_VALIDATION.md) to build the current checkout, drive both providers through a private OpenCode TUI, and capture screenshots. The mock run needs no API keys. The live run loads both keys from the main checkout through Varlock, including when launched from a linked worktree.
 
 `suggest` adds this guidance to model context:
 
@@ -142,13 +150,19 @@ Before sending, the plugin:
 
 Redaction is defence in depth, not a guarantee that arbitrary source contains no confidential material. For repositories that must stay local, set `autoInvoke: "off"` and do not call the tool, or remove the plugin.
 
+## Data sent to Google when Gemini is selected
+
+The same bounded query and source excerpts go to Google's Gemini Developer API (`v1beta/decisions`, model `gemini-decision-1`). Google's [Gemini API terms](https://aistudio.google.com/docs/terms) state that free-tier input and output may be used to improve products and reviewed by humans. Do not submit sensitive or confidential source to the free tier. For a billing-enabled API project, Google says it does not use prompts or responses to improve products, but logs them for a limited period for abuse monitoring. Check the current terms and your repository's data policy before selecting Gemini. Existing redaction is defense in depth, not proof that source is nonconfidential.
+
+Google's published request latency is not a Fast Context benchmark. The provider comparison and calibration remain pending live paired runs; see [BENCHMARK.md](BENCHMARK.md). Gemini's score distribution must be calibrated independently of Jev before relying on absent-answer claims.
+
 ## Results
 
 The tool returns one of:
 
 - `complete`: retrieval completed with checked citations and short excerpts;
 - `no_match`: no relevant evidence was selected in the searched scope;
-- `fallback_required`: Jev is unavailable or misconfigured; continue with ordinary search.
+- `fallback_required`: the selected provider is unavailable or misconfigured; continue with ordinary search.
 
 Intermediate grep output and provider exchanges stay out of the conversation.
 
@@ -165,6 +179,7 @@ Use `--scope project` if it was installed locally. Restart OpenCode after changi
 - **Tool missing after install**: restart the background service with `opencode service restart`, then start a new session. Existing sessions keep their old tool catalog. `opencode plugin list` does not show local-path plugins; use `opencode api GET /api/plugin` instead.
 - **Key works in a terminal but not the app**: the `opencode` shell wrapper only affects processes launched from that shell. The background service and a Dock-launched app do not inherit it. Restart the service from the wrapped shell, or launch OpenCode from that terminal.
 - **`TYPESAFE_API_KEY is not set`**: export the key in the environment that launches OpenCode, or run `/fast-context auth` in the TUI to store one. Do not add it to configuration.
+- **`GEMINI_API_KEY is not set`**: with Gemini selected, set it in the OpenCode server environment or run `/fast-context auth` in the TUI. Google errors do not cause a silent fallback to TypeSafe.
 - **Prompt never appears**: the TUI part of the plugin must be loaded. Check `opencode plugin list`, restart the TUI, and confirm the session is interactive. Headless runs intentionally skip the prompt.
 - **Frequent `fallback_required`**: check provider status and the configured model. Ordinary search is unaffected.
 - **`no_match` on a real target**: the searched candidate pool did not contain a passing match. Try more specific identifiers or inspect the relevant directories.

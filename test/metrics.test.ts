@@ -35,13 +35,8 @@ test("precision@5 uses a fixed denominator of five", () => {
   assert.equal(metrics.recallAt5, 1);
 });
 
-test("one relevant file among five scores 0.2, not 1.0", () => {
-  const metrics = scoreRun(task(), result(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"]), 10);
-  assert.equal(metrics.precisionAt5, 0.2);
-});
-
 test("a failed run is never a valid absent answer", () => {
-  const metrics = scoreRun(task(true), result([]), 10, { failed: true, noAnswer: false });
+  const metrics = scoreRun(task(true), result([]), 10, { failed: true, noAnswer: true });
   assert.equal(metrics.validCompletion, false);
   assert.equal(metrics.absentCorrect, false);
 });

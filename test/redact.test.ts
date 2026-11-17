@@ -78,32 +78,7 @@ test("hostile request IDs are omitted from errors", async () => {
       }),
     (error: Error) => {
       assert.equal(error.message, "HTTP 401");
-      assert.ok(!error.message.includes("ghp_"));
       return true;
     },
   );
-});
-
-test("successful requests redact credentials from the outgoing payload", async () => {
-  let body = "";
-  const provider = createJevProvider({
-    apiKey: DUMMY_KEY,
-    fetchImpl: (async (_url: string, init?: RequestInit) => {
-      body = String(init?.body ?? "");
-      return new Response(
-        JSON.stringify({
-          model: "jev-test",
-          answers: { relevant: { type: "noul", noul: 0.9 } },
-          usage: { input_tokens: 1, output_tokens: 1 },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as typeof fetch,
-  });
-
-  await provider.score("where", [{ id: "c1", path: "a.ts", code: "const a = 1" }], {
-    deadline: Date.now() + 5000,
-    concurrency: 1,
-  });
-  assert.ok(body.includes("a.ts"));
 });

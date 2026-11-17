@@ -23,6 +23,8 @@ interface RecordLike {
     contextChars: number;
   };
   fallback?: { elapsedMs: number; status: string } | null;
+  providerRequests?: Array<{ elapsedMs: number; status: number | null }>;
+  estimatedPaidUsd?: number | null;
   result: {
     truncated: boolean;
     reason?: string;
@@ -94,6 +96,13 @@ export function buildReport(manifest: Record<string, unknown>, records: RecordLi
   lines.push(`| Absent-answer correct | ${absentSummary(records)} |`);
   lines.push(`| Truncated results | ${records.filter((record) => record.result.truncated).length} |`);
   lines.push(`| Fallback required | ${records.filter((record) => record.result.status === "fallback_required").length} |`);
+  const requests = records.flatMap((record) => record.providerRequests ?? []);
+  lines.push(`| Provider calls | ${requests.length} |`);
+  lines.push(`| Provider 429 responses | ${requests.filter((request) => request.status === 429).length} |`);
+  lines.push(`| Provider request failures | ${requests.filter((request) => request.status === null || request.status >= 400).length} |`);
+  lines.push(`| Provider request median / p95 | ${requests.length ? `${median(requests.map((request) => request.elapsedMs))} / ${percentile(requests.map((request) => request.elapsedMs), 95)} ms` : "unavailable"} |`);
+  const costs = records.map((record) => record.estimatedPaidUsd).filter((value): value is number => value !== null && value !== undefined);
+  lines.push(`| Estimated Gemini paid input cost | ${costs.length ? `$${costs.reduce((sum, value) => sum + value, 0).toFixed(6)}` : "unavailable"} |`);
   const fallbacks = records
     .map((record) => record.fallback)
     .filter((item): item is { elapsedMs: number; status: string } => Boolean(item));

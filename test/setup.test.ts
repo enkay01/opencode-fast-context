@@ -50,7 +50,7 @@ test("setup is idempotent, preserves plugins, and never writes the credential", 
   }
 });
 
-test("setup succeeds without an environment credential and points at the TUI prompt", async () => {
+test("setup succeeds without an environment credential and points at provider selection", async () => {
   const root = await mkdtemp(join(tmpdir(), "fast-context-setup-"));
   const env = {
     ...process.env,
@@ -64,7 +64,7 @@ test("setup succeeds without an environment credential and points at the TUI pro
       { cwd: root, env, encoding: "utf8" },
     );
     assert.match(output, /Plugin id: fast-context/);
-    assert.match(output, /prompts in the OpenCode TUI/i);
+    assert.match(output, /fast-context provider in the TUI/i);
     const config = await readFile(join(root, "opencode.json"), "utf8");
     assert.ok(config.includes(target));
   } finally {
@@ -187,13 +187,6 @@ test("setup handles a closing bracket inside a plugins comment", async () => {
   assert.deepEqual(parsed.plugins, ["existing", target]);
 });
 
-test("an older Fast Context version is owned but not an exact target", async () => {
-  const setup = await import("../scripts/setup-opencode.mjs");
-  assert.equal(setup.isFastContextEntry("opencode-fast-context@0.0.9"), true);
-  assert.equal(setup.isExactTarget("opencode-fast-context@0.0.9", "opencode-fast-context@0.1.0"), false);
-  assert.equal(setup.isExactTarget("opencode-fast-context@0.1.0", "opencode-fast-context@0.1.0"), true);
-});
-
 test("setup upgrades an older pinned version instead of claiming no change", async () => {
   const root = await mkdtemp(join(tmpdir(), "fast-context-upgrade-"));
   const config = join(root, "opencode.json");
@@ -222,7 +215,6 @@ test("setup upgrades an older pinned version instead of claiming no change", asy
 });
 
 test("setup normalizes duplicate Fast Context entries to one exact target", async () => {
-  const setup = await import("../scripts/setup-opencode.mjs");
   const root = await mkdtemp(join(tmpdir(), "fast-context-duplicates-"));
   const config = join(root, "opencode.json");
   const targetSpec = "opencode-fast-context@0.1.0";
@@ -237,10 +229,7 @@ test("setup normalizes duplicate Fast Context entries to one exact target", asyn
       [join(repo, "scripts", "setup-opencode.mjs"), "--scope", "project", "--package", targetSpec],
       { cwd: root, env, encoding: "utf8" },
     );
-  const ownedEntries = async () => {
-    const parsed = setup.parseConfig(await readFile(config, "utf8"));
-    return setup.pluginEntries(parsed).filter((entry: unknown) => setup.isFastContextEntry(entry, targetSpec));
-  };
+  const readPlugins = async () => JSON.parse(await readFile(config, "utf8")).plugins;
 
   try {
     // Both an old and the current spec: the exact entry must not mask the old one.
@@ -249,21 +238,16 @@ test("setup normalizes duplicate Fast Context entries to one exact target", asyn
       '{"plugins":["opencode-fast-context@0.0.9","opencode-fast-context@0.1.0"]}\n',
     );
     assert.match(run(), /Updated/);
-    let owned = await ownedEntries();
-    assert.equal(owned.length, 1);
-    assert.equal(setup.isExactTarget(owned[0], targetSpec), true);
-    assert.ok(!(await readFile(config, "utf8")).includes("0.0.9"));
+    assert.deepEqual(await readPlugins(), [targetSpec]);
 
     // Two identical target entries: still duplicated, still normalized.
     await writeFile(config, `{"plugins":["${targetSpec}","${targetSpec}"]}\n`);
     assert.match(run(), /Updated/);
-    owned = await ownedEntries();
-    assert.equal(owned.length, 1);
-    assert.equal(setup.isExactTarget(owned[0], targetSpec), true);
+    assert.deepEqual(await readPlugins(), [targetSpec]);
 
     // A lone exact entry is the only state that reports no change.
     assert.match(run(), /no change/);
-    assert.equal((await ownedEntries()).length, 1);
+    assert.deepEqual(await readPlugins(), [targetSpec]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { searchRepository } from "../src/engine/search.ts";
+import { formatForModel } from "../src/tool.ts";
 import type { DecisionProvider } from "../src/providers/types.ts";
 import type { DiscoveryResult } from "../src/engine/discover.ts";
 import { makeFixture } from "./fixture.ts";
@@ -101,6 +102,9 @@ test("low relevance judgments return no_match instead of weak results", async ()
     assert.equal(result.results.length, 0);
     assert.ok(result.searched.candidates > 0, "no_match reports what was searched");
     assert.match(result.reason ?? "", /threshold/);
+    const text = formatForModel(result);
+    assert.ok(text.includes(`searched: ${result.searched.candidates} candidate windows across ${result.searched.files} files`));
+    assert.match(text, /not proof that no matching file exists/);
   } finally {
     await fixture.cleanup();
   }
@@ -213,7 +217,7 @@ test("filtered-out candidates preserve fallback_required instead of no_match", a
     });
     assert.equal(result.status, "fallback_required");
     assert.equal(result.searched.candidates, 0);
-    assert.match(result.reason ?? "", /no sendable candidates/);
+    assert.match(result.reason ?? "", /no candidate passed outbound content filtering/);
   } finally {
     await fixture.cleanup();
   }

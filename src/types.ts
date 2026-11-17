@@ -29,7 +29,7 @@ export interface Evidence {
 }
 
 export interface ProviderInfo {
-  id: "none" | "jev" | "clef";
+  id: "none" | "jev" | "clef" | "gemini";
   model: string | null;
   usage: { input: number; output: number } | null;
 }

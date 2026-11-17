@@ -84,7 +84,12 @@ function fallbackResult(query: string, reason: string): SearchResult {
   };
 }
 
-function authFailureReason(source: "env" | "store" | undefined, status: number): string {
+function authFailureReason(source: "env" | "store" | undefined, status: number, selected: "jev" | "gemini"): string {
+  if (selected === "gemini") {
+    return source === "env"
+      ? `GEMINI_API_KEY was rejected by Google (HTTP ${status}). Update the environment key; the stored credential was left untouched.`
+      : `The stored Gemini credential was rejected by Google (HTTP ${status}). Run /fast-context auth to replace it.`;
+  }
   if (source === "env") {
     return (
       `TYPESAFE_API_KEY was rejected by TypeSafe (HTTP ${status}). ` +
@@ -99,12 +104,14 @@ function authFailureReason(source: "env" | "store" | undefined, status: number):
 
 export async function runFastContext(options: RunOptions): Promise<SearchResult> {
   const config = options.config ?? { autoInvoke: "suggest" };
+  if (config.providerError) return fallbackResult(options.query, config.providerError);
+  const selected = config.decisionProvider ?? "jev";
   const overrides = options.overrides ?? {};
   const credentials = options.credentials;
   const storedKey = () => credentials?.resolveStored() ?? Promise.resolve(undefined);
 
   const resolve = () =>
-    resolveProviderAsync(process.env, overrides, credentials ? storedKey : undefined);
+    resolveProviderAsync(process.env, overrides, credentials ? storedKey : undefined, selected);
 
   let resolution = await resolve();
 
@@ -116,7 +123,7 @@ export async function runFastContext(options: RunOptions): Promise<SearchResult>
   }
 
   if (!resolution.provider) {
-    return fallbackResult(options.query, resolution.error ?? "Jev is not configured");
+    return fallbackResult(options.query, resolution.error ?? `${selected} is not configured`);
   }
 
   const runSearch = async (provider: DecisionProvider, onAuthFailure: (status: number) => void) =>
@@ -149,7 +156,7 @@ export async function runFastContext(options: RunOptions): Promise<SearchResult>
           authStatus = null;
           result = await runSearch(retry.provider, capture);
           if (result.status === "fallback_required" && authStatus !== null) {
-            return { ...result, reason: authFailureReason(retry.source, authStatus) };
+            return { ...result, reason: authFailureReason(retry.source, authStatus, selected) };
           }
           return result;
         }
@@ -158,7 +165,7 @@ export async function runFastContext(options: RunOptions): Promise<SearchResult>
   }
 
   if (result.status === "fallback_required" && authStatus !== null) {
-    return { ...result, reason: authFailureReason(resolution.source, authStatus) };
+    return { ...result, reason: authFailureReason(resolution.source, authStatus, selected) };
   }
 
   return result;

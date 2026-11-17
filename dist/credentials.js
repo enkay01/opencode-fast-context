@@ -1,24 +1,26 @@
 /** Integration ID under which Fast Context stores the TypeSafe / Jev key. */
 export const FAST_CONTEXT_INTEGRATION_ID = "fast-context";
+export const GEMINI_INTEGRATION_ID = "fast-context-gemini";
 export const FAST_CONTEXT_INTEGRATION_NAME = "Fast Context (TypeSafe Jev)";
 /**
  * Registers the Fast Context integration and its key method so OpenCode's
  * credential store accepts and resolves TypeSafe keys for this plugin.
  */
-export async function registerFastContextIntegration(integration) {
+export async function registerFastContextIntegration(integration, provider = "jev") {
+    const integrationID = provider === "gemini" ? GEMINI_INTEGRATION_ID : FAST_CONTEXT_INTEGRATION_ID;
     return integration.transform((editor) => {
-        editor.update(FAST_CONTEXT_INTEGRATION_ID, (item) => {
-            item.name = FAST_CONTEXT_INTEGRATION_NAME;
+        editor.update(integrationID, (item) => {
+            item.name = provider === "gemini" ? "Fast Context (Gemini Decisions)" : FAST_CONTEXT_INTEGRATION_NAME;
         });
         editor.method.update({
-            integrationID: FAST_CONTEXT_INTEGRATION_ID,
-            method: { type: "key", label: "TypeSafe API key" },
+            integrationID,
+            method: { type: "key", label: provider === "gemini" ? "Gemini API key" : "TypeSafe API key" },
         });
     });
 }
 /** Returns the active stored key, or undefined when none resolves to a key credential. */
-export async function resolveStoredApiKey(integration) {
-    const connection = await integration.connection.active(FAST_CONTEXT_INTEGRATION_ID);
+export async function resolveStoredApiKey(integration, integrationID = FAST_CONTEXT_INTEGRATION_ID) {
+    const connection = await integration.connection.active(integrationID);
     if (!connection)
         return undefined;
     const credential = await integration.connection.resolve(connection);
@@ -28,18 +30,19 @@ export async function resolveStoredApiKey(integration) {
     return credential.key;
 }
 /** Whether any credential connection is active for the Fast Context integration. */
-export async function hasStoredCredential(integration) {
-    return (await integration.connection.active(FAST_CONTEXT_INTEGRATION_ID)) !== undefined;
+export async function hasStoredCredential(integration, integrationID = FAST_CONTEXT_INTEGRATION_ID) {
+    return (await integration.connection.active(integrationID)) !== undefined;
 }
 /** Persists a validated key through OpenCode's integration credential store. */
-export async function storeApiKey(integration, apiKey) {
+export async function storeApiKey(integration, apiKey, integrationID = FAST_CONTEXT_INTEGRATION_ID) {
     await integration.connect.key({
-        integrationID: FAST_CONTEXT_INTEGRATION_ID,
+        integrationID,
         key: apiKey,
-        label: FAST_CONTEXT_INTEGRATION_NAME,
+        label: integrationID === GEMINI_INTEGRATION_ID ? "Fast Context (Gemini Decisions)" : FAST_CONTEXT_INTEGRATION_NAME,
     });
 }
-const DEFAULT_VERIFY_TIMEOUT_MS = 5000;
+// Cold connections can take several seconds before a provider responds.
+const DEFAULT_VERIFY_TIMEOUT_MS = 12_000;
 /**
  * Probes the TypeSafe API with the candidate key before it is persisted.
  * GET /v1/models is the documented lightweight discovery endpoint: a 2xx
@@ -69,6 +72,41 @@ export async function verifyApiKey(apiKey, options = {}) {
         return "invalid";
     return "unverified";
 }
+/** A source-free decision checks access to the selected model before storage. */
+export async function verifyGeminiApiKey(apiKey, options = {}) {
+    const fetchImpl = options.fetchImpl ?? fetch;
+    const endpoint = options.endpoint ?? "https://generativelanguage.googleapis.com/v1beta/decisions";
+    let response;
+    try {
+        response = await fetchImpl(endpoint, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+            body: JSON.stringify({
+                model: "gemini-decision-1",
+                input: "The package arrived damaged.",
+                questions: { damaged: { type: "noul", instructions: "Is the package damaged?" } },
+            }),
+            signal: AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS), ...(options.signal ? [options.signal] : [])]),
+        });
+    }
+    catch {
+        return "unverified";
+    }
+    if (response.ok) {
+        try {
+            const payload = await response.json();
+            const answer = payload.answers?.damaged;
+            return answer?.type === "noul" && typeof answer.noul === "number" && Number.isFinite(answer.noul)
+                ? "valid" : "unverified";
+        }
+        catch {
+            return "unverified";
+        }
+    }
+    if (response.status === 401 || response.status === 403)
+        return "invalid";
+    return "unverified";
+}
 export function verificationErrorMessage(result) {
     if (result === "invalid") {
         return "TypeSafe rejected this key (HTTP 401/403). Check the key and try again.";
@@ -76,8 +114,8 @@ export function verificationErrorMessage(result) {
     return "Could not reach TypeSafe to verify the key. Check your connection and try again.";
 }
 /** Fast Context records within a `credential.list()` result; other integrations are ignored. */
-export function fastContextCredentialEntries(entries) {
-    return entries.filter((entry) => entry.integrationID === FAST_CONTEXT_INTEGRATION_ID);
+export function fastContextCredentialEntries(entries, integrationID = FAST_CONTEXT_INTEGRATION_ID) {
+    return entries.filter((entry) => entry.integrationID === integrationID);
 }
 /**
  * Records a replacement should remove: every Fast Context credential except
@@ -85,8 +123,8 @@ export function fastContextCredentialEntries(entries) {
  * marked active). connect.key appends records, so duplicates must be pruned
  * explicitly through `credential.remove`.
  */
-export function replacementRemoval(entries) {
-    const ours = fastContextCredentialEntries(entries);
+export function replacementRemoval(entries, integrationID = FAST_CONTEXT_INTEGRATION_ID) {
+    const ours = fastContextCredentialEntries(entries, integrationID);
     const keep = ours.find((entry) => entry.active) ?? ours[0];
     return ours.filter((entry) => entry !== keep);
 }
@@ -102,15 +140,15 @@ async function removeEntries(api, entries) {
  * Removes stale Fast Context records after a verified save while keeping the
  * newly active credential. Returns the removed credential IDs.
  */
-export async function removeStaleFastContextCredentials(api) {
-    return removeEntries(api, replacementRemoval(await api.list()));
+export async function removeStaleFastContextCredentials(api, integrationID = FAST_CONTEXT_INTEGRATION_ID) {
+    return removeEntries(api, replacementRemoval(await api.list(), integrationID));
 }
 /**
  * Removes every Fast Context record. Used on expiry and revoke so a rejected
  * key cannot be resolved again. Returns the removed credential IDs.
  */
-export async function removeAllFastContextCredentials(api) {
-    return removeEntries(api, fastContextCredentialEntries(await api.list()));
+export async function removeAllFastContextCredentials(api, integrationID = FAST_CONTEXT_INTEGRATION_ID) {
+    return removeEntries(api, fastContextCredentialEntries(await api.list(), integrationID));
 }
 /**
  * Removes the named Fast Context records, ignoring IDs that belong to another
@@ -118,6 +156,6 @@ export async function removeAllFastContextCredentials(api) {
  */
 export async function removeFastContextCredentials(api, credentialIDs) {
     const wanted = new Set(credentialIDs);
-    const entries = fastContextCredentialEntries(await api.list()).filter((entry) => wanted.has(entry.id));
+    const entries = (await api.list()).filter((entry) => (entry.integrationID === FAST_CONTEXT_INTEGRATION_ID || entry.integrationID === GEMINI_INTEGRATION_ID) && wanted.has(entry.id));
     return removeEntries(api, entries);
 }

@@ -48,9 +48,20 @@ async function main() {
   const repo = resolve(process.cwd());
   const home = await mkdtemp(join(tmpdir(), "fast-context-runtime-"));
   try {
+    const env = {
+      ...process.env,
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+      XDG_DATA_HOME: join(home, ".local", "share"),
+      XDG_STATE_HOME: join(home, ".local", "state"),
+      XDG_CACHE_HOME: join(home, ".cache"),
+    };
+    delete env.TYPESAFE_API_KEY;
+    delete env.GEMINI_API_KEY;
     const versionPlan = launch("opencode", ["--version"]);
     const check = spawnSync(versionPlan.file, versionPlan.args, {
       encoding: "utf8",
+      env,
       ...versionPlan.options,
     });
     if (check.status !== 0) {
@@ -73,15 +84,6 @@ async function main() {
       })}\n`,
     );
 
-    const env = {
-      ...process.env,
-      HOME: home,
-      XDG_CONFIG_HOME: join(home, ".config"),
-      XDG_DATA_HOME: join(home, ".local", "share"),
-      XDG_STATE_HOME: join(home, ".local", "state"),
-      XDG_CACHE_HOME: join(home, ".cache"),
-    };
-    delete env.TYPESAFE_API_KEY;
     const runPlan = launch("opencode", [
       "run",
       "--standalone",

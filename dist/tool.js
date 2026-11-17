@@ -38,7 +38,12 @@ function fallbackResult(query, reason) {
         reason,
     };
 }
-function authFailureReason(source, status) {
+function authFailureReason(source, status, selected) {
+    if (selected === "gemini") {
+        return source === "env"
+            ? `GEMINI_API_KEY was rejected by Google (HTTP ${status}). Update the environment key; the stored credential was left untouched.`
+            : `The stored Gemini credential was rejected by Google (HTTP ${status}). Run /fast-context auth to replace it.`;
+    }
     if (source === "env") {
         return (`TYPESAFE_API_KEY was rejected by TypeSafe (HTTP ${status}). ` +
             "Update the environment key; the stored OpenCode credential was left untouched.");
@@ -48,10 +53,13 @@ function authFailureReason(source, status) {
 }
 export async function runFastContext(options) {
     const config = options.config ?? { autoInvoke: "suggest" };
+    if (config.providerError)
+        return fallbackResult(options.query, config.providerError);
+    const selected = config.decisionProvider ?? "jev";
     const overrides = options.overrides ?? {};
     const credentials = options.credentials;
     const storedKey = () => credentials?.resolveStored() ?? Promise.resolve(undefined);
-    const resolve = () => resolveProviderAsync(process.env, overrides, credentials ? storedKey : undefined);
+    const resolve = () => resolveProviderAsync(process.env, overrides, credentials ? storedKey : undefined, selected);
     let resolution = await resolve();
     if (!resolution.provider && credentials?.requestAuth) {
         const outcome = await credentials.requestAuth("missing", options.signal, options.sessionID);
@@ -60,7 +68,7 @@ export async function runFastContext(options) {
         }
     }
     if (!resolution.provider) {
-        return fallbackResult(options.query, resolution.error ?? "Jev is not configured");
+        return fallbackResult(options.query, resolution.error ?? `${selected} is not configured`);
     }
     const runSearch = async (provider, onAuthFailure) => searchRepository({
         root: options.root,
@@ -90,7 +98,7 @@ export async function runFastContext(options) {
                     authStatus = null;
                     result = await runSearch(retry.provider, capture);
                     if (result.status === "fallback_required" && authStatus !== null) {
-                        return { ...result, reason: authFailureReason(retry.source, authStatus) };
+                        return { ...result, reason: authFailureReason(retry.source, authStatus, selected) };
                     }
                     return result;
                 }
@@ -98,7 +106,7 @@ export async function runFastContext(options) {
         }
     }
     if (result.status === "fallback_required" && authStatus !== null) {
-        return { ...result, reason: authFailureReason(resolution.source, authStatus) };
+        return { ...result, reason: authFailureReason(resolution.source, authStatus, selected) };
     }
     return result;
 }

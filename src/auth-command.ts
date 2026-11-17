@@ -1,32 +1,31 @@
-/**
- * Parses the argument text OpenCode hands to the `fast-context` slash command.
- *
- * OpenCode passes everything after the slash name, so `/fast-context auth
- * status` arrives as `auth status`. The documented forms include the optional
- * `auth` word, so it is consumed before the action is read.
- */
+import type { ProviderKind } from "./config.ts";
+
 export type AuthCommand =
-  | { action: "set" | "status" | "revoke" | "help" }
+  | { action: "select" | "set" | "status" | "revoke" | "help"; provider?: ProviderKind }
   | { action: "unknown"; token: string };
 
-type ExplicitAction = "set" | "status" | "revoke" | "help";
-
-const ACTIONS: Record<string, ExplicitAction> = {
-  "": "set",
-  login: "set",
-  set: "set",
-  key: "set",
-  status: "status",
-  revoke: "revoke",
-  logout: "revoke",
-  remove: "revoke",
-  help: "help",
-};
-
+/** `/fast-context` opens the picker; provider names can target either credential directly. */
 export function parseAuthCommand(input: string): AuthCommand {
-  const tokens = input.trim().split(/\s+/).filter(Boolean);
-  if (tokens[0]?.toLowerCase() === "auth") tokens.shift();
-  const token = (tokens[0] ?? "").toLowerCase();
-  const action = ACTIONS[token];
-  return action ? { action } : { action: "unknown", token };
+  const tokens = input.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hadAuth = tokens[0] === "auth";
+  if (hadAuth) tokens.shift();
+  const action = tokens[0] ?? "";
+  const target = tokens[1];
+  const provider = (value: string | undefined): ProviderKind | undefined =>
+    value === "jev" || value === "gemini" ? value : undefined;
+  if (!action && hadAuth) return { action: "set" };
+  const direct = provider(action);
+  if (hadAuth && direct) return { action: "set", provider: direct };
+  if (!action || action === "provider" || action === "use" || provider(action)) {
+    const requested = provider(action) ?? provider(target);
+    return requested ? { action: "select", provider: requested } : { action: "select" };
+  }
+  const actions: Record<string, "set" | "status" | "revoke" | "help"> = {
+    login: "set", set: "set", key: "set", status: "status", revoke: "revoke",
+    logout: "revoke", remove: "revoke", help: "help",
+  };
+  const resolved = actions[action];
+  if (!resolved || (target && !provider(target))) return { action: "unknown", token: target ?? action };
+  const selected = provider(target);
+  return selected ? { action: resolved, provider: selected } : { action: resolved };
 }

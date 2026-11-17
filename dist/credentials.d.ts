@@ -1,6 +1,7 @@
 import type { ProviderOverrides } from "./config.ts";
 /** Integration ID under which Fast Context stores the TypeSafe / Jev key. */
 export declare const FAST_CONTEXT_INTEGRATION_ID = "fast-context";
+export declare const GEMINI_INTEGRATION_ID = "fast-context-gemini";
 export declare const FAST_CONTEXT_INTEGRATION_NAME = "Fast Context (TypeSafe Jev)";
 /** Minimal structural view of the pieces of `ctx.integration` this module needs. */
 export interface IntegrationCredentialApi {
@@ -53,13 +54,13 @@ export interface RegistrationLike {
  * Registers the Fast Context integration and its key method so OpenCode's
  * credential store accepts and resolves TypeSafe keys for this plugin.
  */
-export declare function registerFastContextIntegration(integration: IntegrationCredentialApi): Promise<RegistrationLike>;
+export declare function registerFastContextIntegration(integration: IntegrationCredentialApi, provider?: "jev" | "gemini"): Promise<RegistrationLike>;
 /** Returns the active stored key, or undefined when none resolves to a key credential. */
-export declare function resolveStoredApiKey(integration: IntegrationCredentialApi): Promise<string | undefined>;
+export declare function resolveStoredApiKey(integration: IntegrationCredentialApi, integrationID?: string): Promise<string | undefined>;
 /** Whether any credential connection is active for the Fast Context integration. */
-export declare function hasStoredCredential(integration: IntegrationCredentialApi): Promise<boolean>;
+export declare function hasStoredCredential(integration: IntegrationCredentialApi, integrationID?: string): Promise<boolean>;
 /** Persists a validated key through OpenCode's integration credential store. */
-export declare function storeApiKey(integration: IntegrationCredentialApi, apiKey: string): Promise<void>;
+export declare function storeApiKey(integration: IntegrationCredentialApi, apiKey: string, integrationID?: string): Promise<void>;
 export type KeyVerification = "valid" | "invalid" | "unverified";
 export interface VerifyOptions extends ProviderOverrides {
     signal?: AbortSignal;
@@ -72,6 +73,8 @@ export interface VerifyOptions extends ProviderOverrides {
  * (network failure, timeout, unexpected status) is "unverified".
  */
 export declare function verifyApiKey(apiKey: string, options?: VerifyOptions): Promise<KeyVerification>;
+/** A source-free decision checks access to the selected model before storage. */
+export declare function verifyGeminiApiKey(apiKey: string, options?: VerifyOptions): Promise<KeyVerification>;
 export declare function verificationErrorMessage(result: Exclude<KeyVerification, "valid">): string;
 /** Structural view of a client credential entry; matches OpenCode's CredentialEntry. */
 export interface CredentialEntryLike {
@@ -80,14 +83,14 @@ export interface CredentialEntryLike {
     active: boolean;
 }
 /** Fast Context records within a `credential.list()` result; other integrations are ignored. */
-export declare function fastContextCredentialEntries<T extends CredentialEntryLike>(entries: readonly T[]): T[];
+export declare function fastContextCredentialEntries<T extends CredentialEntryLike>(entries: readonly T[], integrationID?: string): T[];
 /**
  * Records a replacement should remove: every Fast Context credential except
  * the one that stays active (the active entry, or the first when none is
  * marked active). connect.key appends records, so duplicates must be pruned
  * explicitly through `credential.remove`.
  */
-export declare function replacementRemoval<T extends CredentialEntryLike>(entries: readonly T[]): T[];
+export declare function replacementRemoval<T extends CredentialEntryLike>(entries: readonly T[], integrationID?: string): T[];
 /** Minimal structural view of the client credential API used for cleanup. */
 export interface CredentialStoreApi {
     list: () => Promise<readonly CredentialEntryLike[]>;
@@ -99,12 +102,12 @@ export interface CredentialStoreApi {
  * Removes stale Fast Context records after a verified save while keeping the
  * newly active credential. Returns the removed credential IDs.
  */
-export declare function removeStaleFastContextCredentials(api: CredentialStoreApi): Promise<string[]>;
+export declare function removeStaleFastContextCredentials(api: CredentialStoreApi, integrationID?: string): Promise<string[]>;
 /**
  * Removes every Fast Context record. Used on expiry and revoke so a rejected
  * key cannot be resolved again. Returns the removed credential IDs.
  */
-export declare function removeAllFastContextCredentials(api: CredentialStoreApi): Promise<string[]>;
+export declare function removeAllFastContextCredentials(api: CredentialStoreApi, integrationID?: string): Promise<string[]>;
 /**
  * Removes the named Fast Context records, ignoring IDs that belong to another
  * integration or no longer exist. Returns the removed credential IDs.

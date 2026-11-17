@@ -11,9 +11,10 @@ test("tokenize drops prose filler and keeps identifiers", () => {
 });
 
 test("tokenize keeps camelCase parts and quoted phrases", () => {
-  const tokens = tokenize('Find "maxRetryCount" and handleTimeout');
+  const tokens = tokenize('Find "retry delay" and maxRetryCount near handleTimeout');
+  assert.ok(tokens.includes("retry delay"));
   assert.ok(tokens.includes("maxretrycount"));
-  assert.ok(tokens.includes("maxtry") || tokens.includes("retry"));
+  assert.ok(tokens.includes("count"));
   assert.ok(tokens.includes("handletimeout"));
   assert.ok(tokens.includes("timeout"));
 });

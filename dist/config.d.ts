@@ -7,7 +7,11 @@ export interface FastContextConfig {
      * `fast_context_search`; "off" adds nothing. Neither mode calls a provider.
      */
     autoInvoke?: AutoInvoke;
+    decisionProvider?: "jev" | "gemini";
+    /** Set by public option parsing so invalid selections fail before outbound work. */
+    providerError?: string;
 }
+export type ProviderKind = "jev" | "gemini";
 export interface ProviderResolution {
     provider: DecisionProvider | null;
     /** Set when Jev cannot be configured. Never contains credential material. */
@@ -21,7 +25,7 @@ export interface ProviderOverrides {
     endpoint?: string;
 }
 export declare function readPublicConfig(options: Record<string, unknown> | undefined): FastContextConfig;
-export declare function resolveProvider(env?: NodeJS.ProcessEnv, overrides?: ProviderOverrides): ProviderResolution;
+export declare function resolveProvider(env?: NodeJS.ProcessEnv, overrides?: ProviderOverrides, kind?: ProviderKind): ProviderResolution;
 /**
  * Resolves the provider asynchronously with the full credential precedence:
  * `process.env.TYPESAFE_API_KEY` first, then the OpenCode integration
@@ -29,4 +33,4 @@ export declare function resolveProvider(env?: NodeJS.ProcessEnv, overrides?: Pro
  * key is only consulted when no environment key exists, so an explicit env
  * override can never be shadowed or deleted by store state.
  */
-export declare function resolveProviderAsync(env?: NodeJS.ProcessEnv, overrides?: ProviderOverrides, resolveStoredKey?: () => Promise<string | undefined>): Promise<ProviderResolution>;
+export declare function resolveProviderAsync(env?: NodeJS.ProcessEnv, overrides?: ProviderOverrides, resolveStoredKey?: () => Promise<string | undefined>, kind?: ProviderKind): Promise<ProviderResolution>;

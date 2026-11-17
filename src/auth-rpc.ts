@@ -1,5 +1,6 @@
 import { Rpc } from "@opencode/plugin";
 
+const PROVIDER = { type: "string", enum: ["jev", "gemini"] } as const;
 const EMPTY_OBJECT = {
   type: "object",
   properties: {},
@@ -67,12 +68,23 @@ export const FastContextAuthRpc = Rpc.define({
       output: {
         type: "object",
         properties: {
+          provider: { type: ["string", "null"], enum: ["jev", "gemini", null] },
           env: { type: "boolean" },
           stored: { type: "boolean" },
+          jev: { type: "object", properties: { env: { type: "boolean" }, stored: { type: "boolean" } }, required: ["env", "stored"], additionalProperties: false },
+          gemini: { type: "object", properties: { env: { type: "boolean" }, stored: { type: "boolean" } }, required: ["env", "stored"], additionalProperties: false },
+          instanceID: { type: "string" },
+          connection: { type: "string", enum: ["unselected", "missing", "unverified", "connected", "error"] },
+          checkedAt: { type: "number" },
+          failure: { type: "string" },
         },
-        required: ["env", "stored"],
+        required: ["provider", "env", "stored", "jev", "gemini", "instanceID", "connection"],
         additionalProperties: false,
       },
+    },
+    selectProvider: {
+      input: { type: "object", properties: { provider: PROVIDER }, required: ["provider"], additionalProperties: false },
+      output: { type: "object", properties: { provider: PROVIDER, ok: { type: "boolean" }, error: { type: "string" } }, required: ["provider", "ok"], additionalProperties: false },
     },
     /**
      * Verifies a candidate key against TypeSafe, persists it through the
@@ -84,9 +96,10 @@ export const FastContextAuthRpc = Rpc.define({
         type: "object",
         properties: {
           requestId: { type: "string" },
+          provider: PROVIDER,
           key: { type: "string", minLength: 1, maxLength: 512 },
         },
-        required: ["key"],
+        required: ["key", "provider"],
         additionalProperties: false,
       },
       output: {
@@ -111,6 +124,7 @@ export const FastContextAuthRpc = Rpc.define({
     },
   },
   events: {
+    state: { schema: { type: "object", properties: {}, additionalProperties: false } },
     /** Server asks a connected TUI to collect a credential. */
     request: {
       schema: {
@@ -118,8 +132,9 @@ export const FastContextAuthRpc = Rpc.define({
         properties: {
           requestId: { type: "string" },
           reason: { type: "string", enum: ["missing", "expired"] },
+          provider: { type: "string", enum: ["jev", "gemini"] },
         },
-        required: ["requestId", "reason"],
+        required: ["requestId", "reason", "provider"],
         additionalProperties: false,
       },
     },
@@ -129,8 +144,15 @@ export const FastContextAuthRpc = Rpc.define({
 export type AuthRequestReason = "missing" | "expired";
 
 export interface AuthStatus {
+  provider: "jev" | "gemini" | null;
+  instanceID: string;
+  connection: "unselected" | "missing" | "unverified" | "connected" | "error";
+  checkedAt?: number;
+  failure?: string;
   env: boolean;
   stored: boolean;
+  jev: { env: boolean; stored: boolean };
+  gemini: { env: boolean; stored: boolean };
 }
 
 export interface SubmitKeyResult {

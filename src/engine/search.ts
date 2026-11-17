@@ -31,13 +31,14 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
     ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
   };
   const stage = limits.ablationStage ?? "climb3";
+  const minDecision = options.provider?.minDecision === undefined ? limits.minDecision : options.provider.minDecision;
   const deadline = limits.deadlineMs !== undefined ? started + limits.deadlineMs : undefined;
   const query = options.query.trim();
   const diagnostics = {
     poolFiles: [] as string[],
     ranked: [] as Array<{ path: string; decision: number | null; lexical: number }>,
     abstained: false,
-    abstainThreshold: limits.minDecision as number | null,
+    abstainThreshold: minDecision,
     discoveryTimedOut: false,
     redactedCandidates: 0,
     rejectedCandidates: 0,
@@ -45,7 +46,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   const searched = { candidates: 0, files: 0, truncated: false };
   const providerInfo: ProviderInfo = {
     id: options.provider?.id ?? "none",
-    model: options.provider?.model ?? null,
+    model: null,
     usage: null,
   };
 
@@ -163,54 +164,57 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       reason = "no candidate passed outbound content filtering; continue with ordinary search";
     }
 
-    try {
-      if (safe.length === 0) throw new Error("no sendable candidates");
-      const scoring = await options.provider.score(
-        query,
-        safe.map(({ candidate, code }) => ({
-          id: candidate.id,
-          path: candidate.path,
-          code,
-        })),
-        {
-          deadline: providerDeadline,
-          concurrency: limits.concurrency,
-          ...(options.signal ? { signal: options.signal } : {}),
-        },
-      );
-      provider = {
-        id: options.provider.id,
-        model: scoring.model,
-        usage: scoring.usage,
-      };
-      const scored: RankedCandidate[] = [];
-      const scoredIds = new Set<string>();
-      for (const { candidate } of sendable) {
-        const decision = scoring.scores[candidate.id];
-        if (decision === undefined) continue;
-        scored.push({ ...candidate, decisionScore: decision });
-        scoredIds.add(candidate.id);
-      }
-      scored.sort(
-        (a, b) =>
-          (b.decisionScore ?? 0) - (a.decisionScore ?? 0) ||
-          b.lexicalScore - a.lexicalScore ||
-          a.path.localeCompare(b.path),
-      );
-      const unscored = lexicalPool
-        .filter((candidate) => !scoredIds.has(candidate.id))
-        .map((candidate) => ({ ...candidate, decisionScore: null }));
-      ranked = [...scored, ...unscored];
-
-      if (scoring.skipped > 0) {
-        status = "partial";
-        reason = `${scoring.skipped} candidates were not scored before the deadline or after a provider error`;
-      }
-    } catch (error) {
-      rankingMs = Date.now() - rankingStart;
-      status = "fallback_required";
-      reason = `decision provider ${options.provider.id} failed: ${(error as Error).message}`;
+    if (safe.length === 0) {
       ranked = lexicalPool.map((candidate) => ({ ...candidate, decisionScore: null })) as RankedCandidate[];
+    } else {
+      try {
+        const scoring = await options.provider.score(
+          query,
+          safe.map(({ candidate, code }) => ({
+            id: candidate.id,
+            path: candidate.path,
+            code,
+          })),
+          {
+            deadline: providerDeadline,
+            concurrency: limits.concurrency,
+            ...(options.signal ? { signal: options.signal } : {}),
+          },
+        );
+        provider = {
+          id: options.provider.id,
+          model: scoring.model,
+          usage: scoring.usage,
+        };
+        const scored: RankedCandidate[] = [];
+        const scoredIds = new Set<string>();
+        for (const { candidate } of sendable) {
+          const decision = scoring.scores[candidate.id];
+          if (decision === undefined) continue;
+          scored.push({ ...candidate, decisionScore: decision });
+          scoredIds.add(candidate.id);
+        }
+        scored.sort(
+          (a, b) =>
+            (b.decisionScore ?? 0) - (a.decisionScore ?? 0) ||
+            b.lexicalScore - a.lexicalScore ||
+            a.path.localeCompare(b.path),
+        );
+        const unscored = lexicalPool
+          .filter((candidate) => !scoredIds.has(candidate.id))
+          .map((candidate) => ({ ...candidate, decisionScore: null }));
+        ranked = [...scored, ...unscored];
+
+        if (scoring.skipped > 0) {
+          status = "partial";
+          reason = `${scoring.skipped} candidates were not scored before the deadline or after a provider error`;
+        }
+      } catch (error) {
+        rankingMs = Date.now() - rankingStart;
+        status = "fallback_required";
+        reason = `decision provider ${options.provider.id} failed: ${(error as Error).message}`;
+        ranked = lexicalPool.map((candidate) => ({ ...candidate, decisionScore: null })) as RankedCandidate[];
+      }
     }
     rankingMs = Date.now() - rankingStart;
   } else {
@@ -253,7 +257,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       for (const sib of siblings.slice(1, 3)) {
         const allowSibling =
           candidate.decisionScore !== null
-            ? (sib.decisionScore !== null && sib.decisionScore >= limits.minDecision) ||
+            ? (sib.decisionScore !== null && (minDecision === null || sib.decisionScore >= minDecision)) ||
               sib.lexicalScore >= candidate.lexicalScore * 0.72
             : sib.lexicalScore >= candidate.lexicalScore * 0.68;
         if (allowSibling) {
@@ -300,7 +304,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   }
 
   const topDecision = ranked.find((candidate) => candidate.decisionScore !== null)?.decisionScore ?? null;
-  if (options.provider && status !== "fallback_required" && topDecision !== null && topDecision < limits.minDecision) {
+  if (options.provider && minDecision !== null && status !== "fallback_required" && topDecision !== null && topDecision < minDecision) {
     diagnostics.abstained = true;
     diagnostics.ranked = ranked.slice(0, 64).map((candidate) => ({
       path: candidate.path,

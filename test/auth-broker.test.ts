@@ -70,13 +70,15 @@ test("a prompt that is never answered times out", async () => {
   assert.equal(broker.pendingCount(), 0);
 });
 
-test("an aborted search settles the prompt immediately", async () => {
-  const { broker } = makeBroker();
+test("aborting a search settles its pending prompt", async () => {
+  const { broker, events } = makeBroker();
   broker.attach(["s1"]);
   const controller = new AbortController();
   const pending = broker.broker.requestAuth?.("missing", controller.signal, "s1");
+  await waitForEvents(events, 1);
   controller.abort();
   assert.equal(await pending, "cancelled");
+  assert.equal(broker.pendingCount(), 0);
 });
 
 test("a rejected stored credential is queued for client cleanup and skipped afterwards", async () => {

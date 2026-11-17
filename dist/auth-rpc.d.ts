@@ -94,14 +94,87 @@ export declare const FastContextAuthRpc: {
             readonly output: {
                 readonly type: "object";
                 readonly properties: {
+                    readonly provider: {
+                        readonly type: readonly ["string", "null"];
+                        readonly enum: readonly ["jev", "gemini", null];
+                    };
                     readonly env: {
                         readonly type: "boolean";
                     };
                     readonly stored: {
                         readonly type: "boolean";
                     };
+                    readonly jev: {
+                        readonly type: "object";
+                        readonly properties: {
+                            readonly env: {
+                                readonly type: "boolean";
+                            };
+                            readonly stored: {
+                                readonly type: "boolean";
+                            };
+                        };
+                        readonly required: readonly ["env", "stored"];
+                        readonly additionalProperties: false;
+                    };
+                    readonly gemini: {
+                        readonly type: "object";
+                        readonly properties: {
+                            readonly env: {
+                                readonly type: "boolean";
+                            };
+                            readonly stored: {
+                                readonly type: "boolean";
+                            };
+                        };
+                        readonly required: readonly ["env", "stored"];
+                        readonly additionalProperties: false;
+                    };
+                    readonly instanceID: {
+                        readonly type: "string";
+                    };
+                    readonly connection: {
+                        readonly type: "string";
+                        readonly enum: readonly ["unselected", "missing", "unverified", "connected", "error"];
+                    };
+                    readonly checkedAt: {
+                        readonly type: "number";
+                    };
+                    readonly failure: {
+                        readonly type: "string";
+                    };
                 };
-                readonly required: readonly ["env", "stored"];
+                readonly required: readonly ["provider", "env", "stored", "jev", "gemini", "instanceID", "connection"];
+                readonly additionalProperties: false;
+            };
+        };
+        readonly selectProvider: {
+            readonly input: {
+                readonly type: "object";
+                readonly properties: {
+                    readonly provider: {
+                        readonly type: "string";
+                        readonly enum: readonly ["jev", "gemini"];
+                    };
+                };
+                readonly required: readonly ["provider"];
+                readonly additionalProperties: false;
+            };
+            readonly output: {
+                readonly type: "object";
+                readonly properties: {
+                    readonly provider: {
+                        readonly type: "string";
+                        readonly enum: readonly ["jev", "gemini"];
+                    };
+                    readonly ok: {
+                        readonly type: "boolean";
+                    };
+                    readonly error: {
+                        readonly type: "string";
+                    };
+                };
+                readonly required: readonly ["provider", "ok"];
                 readonly additionalProperties: false;
             };
         };
@@ -117,13 +190,17 @@ export declare const FastContextAuthRpc: {
                     readonly requestId: {
                         readonly type: "string";
                     };
+                    readonly provider: {
+                        readonly type: "string";
+                        readonly enum: readonly ["jev", "gemini"];
+                    };
                     readonly key: {
                         readonly type: "string";
                         readonly minLength: 1;
                         readonly maxLength: 512;
                     };
                 };
-                readonly required: readonly ["key"];
+                readonly required: readonly ["key", "provider"];
                 readonly additionalProperties: false;
             };
             readonly output: {
@@ -165,6 +242,13 @@ export declare const FastContextAuthRpc: {
         };
     };
     readonly events: {
+        readonly state: {
+            readonly schema: {
+                readonly type: "object";
+                readonly properties: {};
+                readonly additionalProperties: false;
+            };
+        };
         /** Server asks a connected TUI to collect a credential. */
         readonly request: {
             readonly schema: {
@@ -177,8 +261,12 @@ export declare const FastContextAuthRpc: {
                         readonly type: "string";
                         readonly enum: readonly ["missing", "expired"];
                     };
+                    readonly provider: {
+                        readonly type: "string";
+                        readonly enum: readonly ["jev", "gemini"];
+                    };
                 };
-                readonly required: readonly ["requestId", "reason"];
+                readonly required: readonly ["requestId", "reason", "provider"];
                 readonly additionalProperties: false;
             };
         };
@@ -186,8 +274,21 @@ export declare const FastContextAuthRpc: {
 };
 export type AuthRequestReason = "missing" | "expired";
 export interface AuthStatus {
+    provider: "jev" | "gemini" | null;
+    instanceID: string;
+    connection: "unselected" | "missing" | "unverified" | "connected" | "error";
+    checkedAt?: number;
+    failure?: string;
     env: boolean;
     stored: boolean;
+    jev: {
+        env: boolean;
+        stored: boolean;
+    };
+    gemini: {
+        env: boolean;
+        stored: boolean;
+    };
 }
 export interface SubmitKeyResult {
     ok: boolean;
