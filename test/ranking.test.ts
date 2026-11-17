@@ -217,7 +217,7 @@ test("filtered-out candidates preserve fallback_required instead of no_match", a
     });
     assert.equal(result.status, "fallback_required");
     assert.equal(result.searched.candidates, 0);
-    assert.match(result.reason ?? "", /no sendable candidates/);
+    assert.match(result.reason ?? "", /no candidate passed outbound content filtering/);
   } finally {
     await fixture.cleanup();
   }

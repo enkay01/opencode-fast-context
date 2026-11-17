@@ -46,7 +46,7 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
   const searched = { candidates: 0, files: 0, truncated: false };
   const providerInfo: ProviderInfo = {
     id: options.provider?.id ?? "none",
-    model: options.provider?.model ?? null,
+    model: null,
     usage: null,
   };
 
@@ -164,54 +164,57 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       reason = "no candidate passed outbound content filtering; continue with ordinary search";
     }
 
-    try {
-      if (safe.length === 0) throw new Error("no sendable candidates");
-      const scoring = await options.provider.score(
-        query,
-        safe.map(({ candidate, code }) => ({
-          id: candidate.id,
-          path: candidate.path,
-          code,
-        })),
-        {
-          deadline: providerDeadline,
-          concurrency: limits.concurrency,
-          ...(options.signal ? { signal: options.signal } : {}),
-        },
-      );
-      provider = {
-        id: options.provider.id,
-        model: scoring.model,
-        usage: scoring.usage,
-      };
-      const scored: RankedCandidate[] = [];
-      const scoredIds = new Set<string>();
-      for (const { candidate } of sendable) {
-        const decision = scoring.scores[candidate.id];
-        if (decision === undefined) continue;
-        scored.push({ ...candidate, decisionScore: decision });
-        scoredIds.add(candidate.id);
-      }
-      scored.sort(
-        (a, b) =>
-          (b.decisionScore ?? 0) - (a.decisionScore ?? 0) ||
-          b.lexicalScore - a.lexicalScore ||
-          a.path.localeCompare(b.path),
-      );
-      const unscored = lexicalPool
-        .filter((candidate) => !scoredIds.has(candidate.id))
-        .map((candidate) => ({ ...candidate, decisionScore: null }));
-      ranked = [...scored, ...unscored];
-
-      if (scoring.skipped > 0) {
-        status = "partial";
-        reason = `${scoring.skipped} candidates were not scored before the deadline or after a provider error`;
-      }
-    } catch (error) {
-      rankingMs = Date.now() - rankingStart;
-      status = "fallback_required";
-      reason = `decision provider ${options.provider.id} failed: ${(error as Error).message}`;
+    if (safe.length === 0) {
       ranked = lexicalPool.map((candidate) => ({ ...candidate, decisionScore: null })) as RankedCandidate[];
+    } else {
+      try {
+        const scoring = await options.provider.score(
+          query,
+          safe.map(({ candidate, code }) => ({
+            id: candidate.id,
+            path: candidate.path,
+            code,
+          })),
+          {
+            deadline: providerDeadline,
+            concurrency: limits.concurrency,
+            ...(options.signal ? { signal: options.signal } : {}),
+          },
+        );
+        provider = {
+          id: options.provider.id,
+          model: scoring.model,
+          usage: scoring.usage,
+        };
+        const scored: RankedCandidate[] = [];
+        const scoredIds = new Set<string>();
+        for (const { candidate } of sendable) {
+          const decision = scoring.scores[candidate.id];
+          if (decision === undefined) continue;
+          scored.push({ ...candidate, decisionScore: decision });
+          scoredIds.add(candidate.id);
+        }
+        scored.sort(
+          (a, b) =>
+            (b.decisionScore ?? 0) - (a.decisionScore ?? 0) ||
+            b.lexicalScore - a.lexicalScore ||
+            a.path.localeCompare(b.path),
+        );
+        const unscored = lexicalPool
+          .filter((candidate) => !scoredIds.has(candidate.id))
+          .map((candidate) => ({ ...candidate, decisionScore: null }));
+        ranked = [...scored, ...unscored];
+
+        if (scoring.skipped > 0) {
+          status = "partial";
+          reason = `${scoring.skipped} candidates were not scored before the deadline or after a provider error`;
+        }
+      } catch (error) {
+        rankingMs = Date.now() - rankingStart;
+        status = "fallback_required";
+        reason = `decision provider ${options.provider.id} failed: ${(error as Error).message}`;
+        ranked = lexicalPool.map((candidate) => ({ ...candidate, decisionScore: null })) as RankedCandidate[];
+      }
     }
     rankingMs = Date.now() - rankingStart;
   } else {

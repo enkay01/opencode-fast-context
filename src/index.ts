@@ -22,6 +22,22 @@ import {
   formatForModel,
   runFastContext,
 } from "./tool.ts";
+import type { SearchResult } from "./types.ts";
+
+function providerFailure(
+  result: SearchResult,
+  provider: ProviderKind,
+): "credential rejected" | "quota" | "provider unavailable" | undefined {
+  if (result.status !== "fallback_required" || result.provider.id !== provider) return undefined;
+  const reason = result.reason ?? "";
+  const providerRequestFailed = reason.startsWith(`decision provider ${provider} failed:`);
+  const credentialRejected = /HTTP (401|403)\b/.test(reason);
+  const quotaExceeded = /HTTP 429\b/.test(reason);
+  if (!providerRequestFailed && !credentialRejected && !quotaExceeded) return undefined;
+  if (credentialRejected) return "credential rejected";
+  if (quotaExceeded) return "quota";
+  return "provider unavailable";
+}
 
 /** OpenCode 2 plugin entry point. */
 export default Plugin.define({
@@ -159,9 +175,14 @@ export default Plugin.define({
               ? "Provider selection storage is unavailable. Check /fast-context auth status and retry."
               : "Select Jev or Gemini with /fast-context provider before searching." } });
           if (choice) {
-            const failure = result.status === "fallback_required" ? /401|403/.test(result.reason ?? "") ? "credential rejected" : /429/.test(result.reason ?? "") ? "quota" : "provider unavailable" : undefined;
-            observations[choice] = failure ? { connection: "error", checkedAt: Date.now(), failure } : { connection: "connected", checkedAt: Date.now() };
-            await rpcRegistration.events.emit("state", {}).catch(() => {});
+            const failure = providerFailure(result, choice);
+            if (failure) {
+              observations[choice] = { connection: "error", checkedAt: Date.now(), failure };
+              await rpcRegistration.events.emit("state", {}).catch(() => {});
+            } else if (result.status !== "fallback_required" && result.provider.id === choice && result.provider.model !== null) {
+              observations[choice] = { connection: "connected", checkedAt: Date.now() };
+              await rpcRegistration.events.emit("state", {}).catch(() => {});
+            }
           }
           return {
             content: formatForModel(result),
