@@ -23,7 +23,13 @@ test("Gemini scores approved snippets using its documented REST fields and total
   assert.deepEqual(result.scores, { c1: 0.84, c2: 0.84 });
   assert.deepEqual(result.usage, { input: 24, output: 0 });
   assert.equal(bodies[0]?.model, "gemini-decision-1");
-  assert.equal((bodies[0]?.questions as { relevant: { criteria: Record<string, string> } }).relevant.criteria.true_description.length > 0, true);
+  const { relevant } = bodies[0]?.questions as { relevant: { type: string; criteria: Record<string, string> } };
+  assert.equal(relevant.type, "noul");
+  assert.deepEqual(Object.keys(relevant.criteria).sort(), ["false_description", "true_description"]);
+  assert.deepEqual(JSON.parse(String(bodies[0]?.input)), {
+    question: "retry",
+    candidate: { path: candidate.path, code: candidate.code },
+  });
 });
 
 test("Gemini rejects malformed and nonfinite scores, and preserves partial success", async () => {
@@ -32,7 +38,9 @@ test("Gemini rejects malformed and nonfinite scores, and preserves partial succe
     apiKey: "test",
     fetchImpl: (async () => {
       calls++;
-      return response({ answers: { relevant: { type: "noul", noul: calls === 1 ? 0.7 : "0.7" } } });
+      if (calls === 1) return response({ answers: { relevant: { type: "noul", noul: 0.7 } } });
+      if (calls === 2) return response({ answers: { relevant: { type: "noul", noul: "0.7" } } });
+      return new Response('{"answers":{"relevant":{"type":"noul","noul":1e309}}}');
     }) as typeof fetch,
   });
   const result = await provider.score("retry", [candidate, { ...candidate, id: "c2" }], { deadline: deadline(), concurrency: 1 });
@@ -134,10 +142,15 @@ test("multi-question layout maps scores by candidate position in one request", a
 });
 
 test("Gemini returns a safe error on provider rejection, cancellation, and deadline", async () => {
-  const provider = createGeminiProvider({ apiKey: "test", fetchImpl: (async () => response({ error: { message: "private source" } }, 429)) as typeof fetch });
-  await assert.rejects(provider.score("retry", [candidate], { deadline: deadline(), concurrency: 1 }), /HTTP 429/);
+  let calls = 0;
+  const provider = createGeminiProvider({ apiKey: "test", fetchImpl: async () => {
+    calls++;
+    return response({ error: { message: "private source" } }, 429);
+  } });
+  await assert.rejects(provider.score("retry", [candidate], { deadline: deadline(), concurrency: 1 }), { message: "HTTP 429" });
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(provider.score("retry", [candidate], { deadline: deadline(), concurrency: 1, signal: controller.signal }), /no candidates scored|cancelled/);
   await assert.rejects(provider.score("retry", [candidate], { deadline: Date.now() - 1, concurrency: 1 }), /no candidates scored|deadline/);
+  assert.equal(calls, 1);
 });

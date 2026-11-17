@@ -73,14 +73,18 @@ export const FastContextAuthRpc = Rpc.define({
           stored: { type: "boolean" },
           jev: { type: "object", properties: { env: { type: "boolean" }, stored: { type: "boolean" } }, required: ["env", "stored"], additionalProperties: false },
           gemini: { type: "object", properties: { env: { type: "boolean" }, stored: { type: "boolean" } }, required: ["env", "stored"], additionalProperties: false },
+          instanceID: { type: "string" },
+          connection: { type: "string", enum: ["unselected", "missing", "unverified", "connected", "error"] },
+          checkedAt: { type: "number" },
+          failure: { type: "string" },
         },
-        required: ["provider", "env", "stored", "jev", "gemini"],
+        required: ["provider", "env", "stored", "jev", "gemini", "instanceID", "connection"],
         additionalProperties: false,
       },
     },
     selectProvider: {
       input: { type: "object", properties: { provider: PROVIDER }, required: ["provider"], additionalProperties: false },
-      output: { type: "object", properties: { provider: PROVIDER }, required: ["provider"], additionalProperties: false },
+      output: { type: "object", properties: { provider: PROVIDER, ok: { type: "boolean" }, error: { type: "string" } }, required: ["provider", "ok"], additionalProperties: false },
     },
     /**
      * Verifies a candidate key against TypeSafe, persists it through the
@@ -120,6 +124,7 @@ export const FastContextAuthRpc = Rpc.define({
     },
   },
   events: {
+    state: { schema: { type: "object", properties: {}, additionalProperties: false } },
     /** Server asks a connected TUI to collect a credential. */
     request: {
       schema: {
@@ -140,6 +145,10 @@ export type AuthRequestReason = "missing" | "expired";
 
 export interface AuthStatus {
   provider: "jev" | "gemini" | null;
+  instanceID: string;
+  connection: "unselected" | "missing" | "unverified" | "connected" | "error";
+  checkedAt?: number;
+  failure?: string;
   env: boolean;
   stored: boolean;
   jev: { env: boolean; stored: boolean };

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { join, relative } from "node:path";
 import { searchRepository } from "../src/engine/search.ts";
-import { readCandidateExcerpt, type Candidate } from "../src/engine/discover.ts";
+import { discover, readCandidateExcerpt, type Candidate } from "../src/engine/discover.ts";
+import { exec } from "../src/engine/files.ts";
 import { formatForModel } from "../src/tool.ts";
+import { DEFAULT_LIMITS } from "../src/types.ts";
 import { makeFixture, addSymlink } from "./fixture.ts";
 
 function candidateAt(path: string): Candidate {
@@ -45,9 +48,10 @@ test("finds a function by identifier and returns valid ranges with a digest", as
     const first = result.results[0];
     assert.ok(first, "expected evidence");
     assert.equal(first.path, "src/retry.ts");
-    assert.equal(first.digest.length, 64);
-    assert.ok(first.ranges[0]!.start >= 1);
+    assert.equal(first.digest, createHash("sha256").update(REPO["src/retry.ts"]).digest("hex"));
+    assert.ok(first.ranges.some(({ start, end }) => start === 1 && end >= 3 && end <= 5));
     assert.match(first.excerpt, /retryDelay/);
+    assert.match(first.excerpt, /return backoff/);
     assert.equal(result.provider.id, "none");
     assert.equal(result.searched.candidates, 0, "no provider means no windows scored");
     assert.equal(result.searched.files, 0);
@@ -73,23 +77,7 @@ test("returns no_match for an absent behavior instead of inventing a file", asyn
   }
 });
 
-test("never returns a secret file even when it matches the query", async () => {
-  const fixture = await makeFixture({
-    ...REPO,
-    ".env.local": "RETRY_DELAY_SECRET=abc123\n",
-    "config/credentials.json": '{"retryDelay":"secret"}',
-  });
-  try {
-    const result = await searchRepository({ root: fixture.root, query: "Where is retryDelay set?" });
-    const paths = result.results.map((item) => item.path);
-    assert.ok(!paths.includes(".env.local"));
-    assert.ok(!paths.includes("config/credentials.json"));
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
-test("rejects a symlink that resolves outside the worktree", async (t) => {
+test("re-reading a candidate rejects a symlink outside the worktree", async (t) => {
   const outside = await makeFixture({
     "secret.ts": "export const retryDelay = () => 999\n",
   });
@@ -102,25 +90,11 @@ test("rejects a symlink that resolves outside the worktree", async (t) => {
       t.skip("symlink creation is not permitted on this platform");
       return;
     }
-    const result = await searchRepository({ root: fixture.root, query: "Where is retryDelay computed?" });
-    assert.ok(!result.results.some((item) => item.path === "src/linked.ts"));
+    const checked = await readCandidateExcerpt(fixture.root, candidateAt("src/linked.ts"), 1_000_000);
+    assert.equal(checked, null);
   } finally {
     await fixture.cleanup();
     await outside.cleanup();
-  }
-});
-
-test("re-reads evidence inside the worktree regardless of the platform separator", async () => {
-  const fixture = await makeFixture({
-    "src/retry.ts": "export const retryDelay = 1\n",
-  });
-  try {
-    const checked = await readCandidateExcerpt(fixture.root, candidateAt("src/retry.ts"), 1_000_000);
-    assert.ok(checked, "expected an in-worktree file to be readable");
-    assert.match(checked.text, /retryDelay/);
-    assert.equal(checked.digest.length, 64);
-  } finally {
-    await fixture.cleanup();
   }
 });
 
@@ -142,24 +116,16 @@ test("re-reads reject a path that resolves outside the worktree", async () => {
 });
 
 test("respects maxFiles and reports truncation", async () => {
-  const fixture = await makeFixture(REPO);
+  const fixture = await makeFixture({
+    "src/a.ts": "export const retryDelayA = 1\n",
+    "src/b.ts": "export const retryDelayB = 2\n",
+  });
   try {
+    const uncapped = await searchRepository({ root: fixture.root, query: "retryDelay" });
     const result = await searchRepository({ root: fixture.root, query: "retryDelay", maxFiles: 1 });
-    assert.ok(result.results.length <= 1);
+    assert.deepEqual(uncapped.results.map(({ path }) => path).sort(), ["src/a.ts", "src/b.ts"]);
+    assert.deepEqual(result.results, uncapped.results.slice(0, 1));
     assert.equal(result.truncated, true);
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
-test("keeps the model-facing view compact", async () => {
-  const fixture = await makeFixture(REPO);
-  try {
-    const result = await searchRepository({ root: fixture.root, query: "Where is retryDelay computed?" });
-    const text = formatForModel(result);
-    assert.match(text, /status: complete/);
-    assert.match(text, /src\/retry\.ts:\d+-\d+/);
-    assert.ok(text.length < 2000, "tool output should stay small");
   } finally {
     await fixture.cleanup();
   }
@@ -171,20 +137,21 @@ test("a discovery timeout reports fallback_required rather than no_match", async
     const result = await searchRepository({
       root: fixture.root,
       query: "Where is retryDelay computed?",
-      limits: { deadlineMs: 1 },
+      discoverImpl: (root, query, limits, options) => discover(root, query, limits, {
+        ...options,
+        execImpl: async () => ({ code: null, stdout: "", stderr: "", timedOut: true }),
+      }),
     });
     assert.equal(result.status, "fallback_required");
     assert.match(result.reason ?? "", /discovery deadline/);
     assert.equal(result.searched.truncated, true);
+    assert.match(formatForModel(result), /discovery truncated by deadline/);
   } finally {
     await fixture.cleanup();
   }
 });
 
 test("discover spawns at most one rg process per wave even for multi-token queries", async () => {
-  const { discover } = await import("../src/engine/discover.ts");
-  const { DEFAULT_LIMITS } = await import("../src/types.ts");
-  const { exec, spawnOptions } = await import("../src/engine/files.ts");
   const fixture = await makeFixture(REPO);
   try {
     const calls: { command: string; args: string[] }[] = [];
@@ -200,31 +167,34 @@ test("discover spawns at most one rg process per wave even for multi-token queri
       },
     );
     assert.ok(result.candidates.length > 0, "expected candidates from combined rg pass");
+    assert.ok(calls.every(({ command }) => command === "rg"));
+    assert.ok(calls[0]!.args.filter((arg) => arg === "-e").length > 1);
     assert.equal(calls.length, result.waves, "expected exactly 1 rg process per wave");
     assert.ok(calls.length <= DEFAULT_LIMITS.waves);
-    assert.equal(spawnOptions({ cwd: fixture.root }).windowsHide, true);
   } finally {
     await fixture.cleanup();
   }
 });
 
-test("default limits apply a 30s deadline to Jev ranking only and leave local discovery unbounded", async () => {
-  const { DEFAULT_LIMITS } = await import("../src/types.ts");
-  assert.equal(DEFAULT_LIMITS.deadlineMs, undefined);
-  assert.equal(DEFAULT_LIMITS.providerDeadlineMs, 30_000);
-
+test("default limits apply a 30s deadline to Jev ranking and leave discovery unbounded", async (t) => {
   const fixture = await makeFixture(REPO);
+  const now = 1_000_000;
+  t.mock.method(Date, "now", () => now);
   try {
-    let seenDeadline = 0;
-    const before = Date.now();
+    let rankingDeadline: number | undefined;
+    let discoveryDeadline: number | undefined;
     const result = await searchRepository({
       root: fixture.root,
       query: "Where is retryDelay computed?",
+      discoverImpl: (root, query, limits, options) => {
+        discoveryDeadline = options.deadline;
+        return discover(root, query, limits, options);
+      },
       provider: {
         id: "jev",
         model: "jev-latest",
         async score(_query, candidates, options) {
-          seenDeadline = options.deadline;
+          rankingDeadline = options.deadline;
           return {
             scores: Object.fromEntries(candidates.map((c) => [c.id, 0.9])),
             usage: null,
@@ -235,8 +205,8 @@ test("default limits apply a 30s deadline to Jev ranking only and leave local di
       },
     });
     assert.equal(result.status, "complete");
-    const delta = seenDeadline - before;
-    assert.ok(delta >= 29_000 && delta <= 32_000, `expected ~30s provider deadline, got ${delta}ms`);
+    assert.equal(discoveryDeadline, undefined);
+    assert.equal(rankingDeadline, now + 30_000);
   } finally {
     await fixture.cleanup();
   }

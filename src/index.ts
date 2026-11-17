@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin";
+import { randomUUID } from "node:crypto";
 import { createAuthBroker } from "./auth-broker.ts";
 import { FastContextAuthRpc } from "./auth-rpc.ts";
 import { readPublicConfig, type ProviderKind } from "./config.ts";
@@ -27,9 +28,12 @@ export default Plugin.define({
   id: "fast-context",
   async setup(ctx: Plugin.Context) {
     const config = readPublicConfig(ctx.options as Record<string, unknown> | undefined);
-    const storedSelection = await ctx.storage.get("selectedProvider");
-    let selected: ProviderKind | null = storedSelection === "jev" || storedSelection === "gemini"
-      ? storedSelection : config.decisionProvider ?? null;
+    const instanceID = randomUUID();
+    const observations: Record<ProviderKind, { connection: "connected" | "error"; checkedAt: number; failure?: string } | undefined> = { jev: undefined, gemini: undefined };
+    const selection = async (): Promise<ProviderKind | null> => {
+      const stored = await ctx.storage.get("selectedProvider");
+      return stored === "jev" || stored === "gemini" ? stored : config.decisionProvider ?? null;
+    };
     const root = ctx.location.project?.directory || ctx.location.directory;
     const integration = ctx.integration as unknown as IntegrationCredentialApi;
     const integrationID = (provider: ProviderKind) => provider === "gemini" ? GEMINI_INTEGRATION_ID : FAST_CONTEXT_INTEGRATION_ID;
@@ -74,20 +78,32 @@ export default Plugin.define({
         return { ok: true };
       },
       status: async () => {
+        const selected = await selection();
         const jev = { env: Boolean(process.env.TYPESAFE_API_KEY), stored: await hasStoredCredential(integration, FAST_CONTEXT_INTEGRATION_ID) };
         const gemini = { env: Boolean(process.env.GEMINI_API_KEY), stored: await hasStoredCredential(integration, GEMINI_INTEGRATION_ID) };
+        const available = selected && (selected === "jev" ? jev : gemini);
+        const observation = selected && available && (available.env || available.stored) ? observations[selected] : undefined;
         return { provider: selected, env: selected ? (selected === "jev" ? jev : gemini).env : false,
-          stored: selected ? (selected === "jev" ? jev : gemini).stored : false, jev, gemini };
+          stored: selected ? (selected === "jev" ? jev : gemini).stored : false, jev, gemini, instanceID,
+          connection: !selected ? "unselected" : !available || (!available.env && !available.stored) ? "missing" : observation?.connection ?? "unverified",
+          ...(observation ? { checkedAt: observation.checkedAt, ...(observation.failure ? { failure: observation.failure } : {}) } : {}) };
       },
       selectProvider: async (input) => {
         const { provider } = input as { provider: ProviderKind };
+        const key = provider === "gemini" ? process.env.GEMINI_API_KEY : process.env.TYPESAFE_API_KEY;
+        const candidate = key || await resolveStoredApiKey(integration, integrationID(provider));
+        if (!candidate) return { provider, ok: false, error: `No ${provider} key is configured.` };
+        const verified = provider === "gemini" ? await verifyGeminiApiKey(candidate) : await verifyApiKey(candidate);
+        if (verified !== "valid") return { provider, ok: false, error: verified === "invalid" ? `${provider} rejected the key.` : `Could not verify ${provider} access.` };
         await ctx.storage.set("selectedProvider", provider);
-        selected = provider;
-        return { provider };
+        if (await selection() !== provider) return { provider, ok: false, error: "Provider selection did not persist." };
+        observations[provider] = { connection: "connected", checkedAt: Date.now() };
+        await rpcRegistration.events.emit("state", {}).catch(() => {});
+        return { provider, ok: true };
       },
       submitKey: async (input) => {
         const { requestId, key, provider: requested } = input as { requestId?: string; key: string; provider?: ProviderKind };
-        const provider = requested ?? selected;
+        const provider = requested ?? await selection();
         if (!provider) return { ok: false, error: "Select a provider before storing a key." };
         const verification = provider === "gemini" ? await verifyGeminiApiKey(key) : await verifyApiKey(key);
         if (verification !== "valid") {
@@ -101,6 +117,8 @@ export default Plugin.define({
           return { ok: false, error: "OpenCode could not store the credential. Try again." };
         }
         auth[provider].clearRejected();
+        observations[provider] = { connection: "connected", checkedAt: Date.now() };
+        await rpcRegistration.events.emit("state", {}).catch(() => {});
         if (requestId) auth[provider].settle(requestId, "saved");
         return { ok: true };
       },
@@ -124,7 +142,10 @@ export default Plugin.define({
         options: { codemode: false },
         execute: async (rawInput, toolContext) => {
           const input = rawInput as { query: string; maxFiles?: number };
-          const choice = selected;
+          let choice: ProviderKind | null;
+          let selectionError = false;
+          try { choice = await selection(); }
+          catch { choice = null; selectionError = true; }
           const result = choice ? await runFastContext({
             root,
             query: input.query,
@@ -134,10 +155,17 @@ export default Plugin.define({
             ...(input.maxFiles ? { maxFiles: input.maxFiles } : {}),
             ...(toolContext.signal ? { signal: toolContext.signal } : {}),
           }) : await runFastContext({ root, query: input.query,
-            config: { ...config, providerError: "Select Jev or Gemini with /fast-context provider before searching." } });
+            config: { ...config, providerError: selectionError
+              ? "Provider selection storage is unavailable. Check /fast-context auth status and retry."
+              : "Select Jev or Gemini with /fast-context provider before searching." } });
+          if (choice) {
+            const failure = result.status === "fallback_required" ? /401|403/.test(result.reason ?? "") ? "credential rejected" : /429/.test(result.reason ?? "") ? "quota" : "provider unavailable" : undefined;
+            observations[choice] = failure ? { connection: "error", checkedAt: Date.now(), failure } : { connection: "connected", checkedAt: Date.now() };
+            await rpcRegistration.events.emit("state", {}).catch(() => {});
+          }
           return {
             content: formatForModel(result),
-            metadata: { fast_context: result },
+            metadata: { fast_context: result, fast_context_instance: instanceID },
           };
         },
       });

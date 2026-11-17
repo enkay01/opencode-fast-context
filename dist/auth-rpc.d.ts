@@ -130,8 +130,21 @@ export declare const FastContextAuthRpc: {
                         readonly required: readonly ["env", "stored"];
                         readonly additionalProperties: false;
                     };
+                    readonly instanceID: {
+                        readonly type: "string";
+                    };
+                    readonly connection: {
+                        readonly type: "string";
+                        readonly enum: readonly ["unselected", "missing", "unverified", "connected", "error"];
+                    };
+                    readonly checkedAt: {
+                        readonly type: "number";
+                    };
+                    readonly failure: {
+                        readonly type: "string";
+                    };
                 };
-                readonly required: readonly ["provider", "env", "stored", "jev", "gemini"];
+                readonly required: readonly ["provider", "env", "stored", "jev", "gemini", "instanceID", "connection"];
                 readonly additionalProperties: false;
             };
         };
@@ -154,8 +167,14 @@ export declare const FastContextAuthRpc: {
                         readonly type: "string";
                         readonly enum: readonly ["jev", "gemini"];
                     };
+                    readonly ok: {
+                        readonly type: "boolean";
+                    };
+                    readonly error: {
+                        readonly type: "string";
+                    };
                 };
-                readonly required: readonly ["provider"];
+                readonly required: readonly ["provider", "ok"];
                 readonly additionalProperties: false;
             };
         };
@@ -223,6 +242,13 @@ export declare const FastContextAuthRpc: {
         };
     };
     readonly events: {
+        readonly state: {
+            readonly schema: {
+                readonly type: "object";
+                readonly properties: {};
+                readonly additionalProperties: false;
+            };
+        };
         /** Server asks a connected TUI to collect a credential. */
         readonly request: {
             readonly schema: {
@@ -249,6 +275,10 @@ export declare const FastContextAuthRpc: {
 export type AuthRequestReason = "missing" | "expired";
 export interface AuthStatus {
     provider: "jev" | "gemini" | null;
+    instanceID: string;
+    connection: "unselected" | "missing" | "unverified" | "connected" | "error";
+    checkedAt?: number;
+    failure?: string;
     env: boolean;
     stored: boolean;
     jev: {

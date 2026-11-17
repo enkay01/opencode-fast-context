@@ -41,7 +41,8 @@ export async function storeApiKey(integration, apiKey, integrationID = FAST_CONT
         label: integrationID === GEMINI_INTEGRATION_ID ? "Fast Context (Gemini Decisions)" : FAST_CONTEXT_INTEGRATION_NAME,
     });
 }
-const DEFAULT_VERIFY_TIMEOUT_MS = 5000;
+// Cold connections can take several seconds before a provider responds.
+const DEFAULT_VERIFY_TIMEOUT_MS = 12_000;
 /**
  * Probes the TypeSafe API with the candidate key before it is persisted.
  * GET /v1/models is the documented lightweight discovery endpoint: a 2xx

@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "@opentui/solid/jsx-runtime";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
+import { createSignal } from "solid-js";
 import { parseAuthCommand } from "./auth-command.js";
 import { FastContextAuthRpc } from "./auth-rpc.js";
 import { FAST_CONTEXT_INTEGRATION_ID, GEMINI_INTEGRATION_ID, removeAllFastContextCredentials, removeFastContextCredentials, removeStaleFastContextCredentials, } from "./credentials.js";
@@ -84,6 +85,26 @@ export default Plugin.define({
     async setup(context) {
         const client = context.client.rpc(FastContextAuthRpc);
         const api = context.client;
+        const [view, setView] = createSignal(null);
+        const refreshStatus = async () => {
+            try {
+                setView((await client.status({})));
+            }
+            catch {
+                setView(null);
+            }
+        };
+        const unsubscribeState = client.events.on("state", () => { void refreshStatus(); });
+        const removeSidebar = context.ui.slot({
+            append: "sidebar.footer",
+            render: () => {
+                const status = view();
+                const label = !status ? "Fast Context · status unavailable" : !status.provider ? "Fast Context · choose provider"
+                    : `Fast Context · ${status.provider} · ${status.connection === "error" ? status.failure ?? "error" : status.connection === "unverified" ? `${status.env ? "environment" : "stored"} key, unverified` : status.connection}`;
+                return _jsx("text", { children: label });
+            },
+        });
+        void refreshStatus();
         const activeProvider = async () => {
             const status = (await client.status({}));
             return status.provider;
@@ -227,7 +248,7 @@ export default Plugin.define({
                 };
                 await context.ui.dialog.alert({
                     title: "Fast Context providers",
-                    message: [`Selected: ${status.provider ?? "none"}`, describe("jev"), describe("gemini"),
+                    message: [`Selected: ${status.provider ?? "none"}`, `Connection: ${status.connection}${status.failure ? ` (${status.failure})` : ""}${status.checkedAt ? ` · checked ${new Date(status.checkedAt).toLocaleTimeString()}` : ""}`, describe("jev"), describe("gemini"),
                         "Use /fast-context provider to switch; /fast-context auth to set up the selected provider."].join("\n"),
                 });
             }
@@ -245,25 +266,39 @@ export default Plugin.define({
             });
             return choice;
         };
+        const activate = async (provider) => {
+            try {
+                const result = (await client.selectProvider({ provider }));
+                const status = (await client.status({}));
+                if (!result.ok || status.provider !== provider) {
+                    context.ui.toast.show({ title: "Fast Context", message: result.error ?? "Selection did not persist. Key may be saved; retry provider selection.", variant: "error" });
+                    return false;
+                }
+                await refreshStatus();
+                context.ui.toast.show({ title: "Fast Context", message: `${provider} connected and selected.`, variant: "success" });
+                return true;
+            }
+            catch {
+                context.ui.toast.show({ title: "Fast Context", message: "Could not confirm the provider selection. Check server status and retry.", variant: "error" });
+                return false;
+            }
+        };
         const selectProvider = async (requested) => {
             const provider = requested ?? await chooseProvider();
             if (!provider)
                 return;
-            await client.selectProvider({ provider });
             const status = (await client.status({}));
             if (!status[provider].env && !status[provider].stored) {
                 await promptAndSave(provider);
             }
             else {
-                context.ui.toast.show({ title: "Fast Context", message: `${provider} selected.`, variant: "success" });
+                await activate(provider);
             }
         };
         const promptAndSave = async (requested) => {
             const provider = requested ?? await activeProvider() ?? await chooseProvider();
             if (!provider)
                 return;
-            if (!requested && !(await activeProvider()))
-                await client.selectProvider({ provider });
             const outcome = await collectKey({
                 provider,
                 title: "Store a Fast Context credential",
@@ -272,7 +307,7 @@ export default Plugin.define({
                     : "Enter your TypeSafe API key. It is verified live, then saved in OpenCode's credential store. The key is never written to this project or your shell profile.",
             });
             if (outcome === "saved") {
-                context.ui.toast.show({ title: "Fast Context", message: "Credential updated.", variant: "success" });
+                await activate(provider);
             }
         };
         const revoke = async (requested) => {
@@ -288,6 +323,7 @@ export default Plugin.define({
                 return;
             try {
                 await removeAllFastContextCredentials(api.credential, credentialID(provider));
+                await refreshStatus();
                 context.ui.toast.show({ title: "Fast Context", message: "Stored credential revoked.", variant: "success" });
             }
             catch {
@@ -341,6 +377,8 @@ export default Plugin.define({
             ],
         }));
         return () => {
+            unsubscribeState();
+            removeSidebar();
             unsubscribeRequest();
             unsubscribeViewed();
             unsubscribeCreated();

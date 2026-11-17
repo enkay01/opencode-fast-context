@@ -16,7 +16,7 @@ Google documents `POST https://generativelanguage.googleapis.com/v1beta/decision
 
 ### 1. Resolve the provider from a public enum
 
-Use one plugin instance with a TUI provider picker. Persist the selected provider in OpenCode storage; an optional `decisionProvider` option initializes a fresh installation, but a subsequent TUI choice wins. Reject invalid values explicitly. With no selection, return setup guidance before resolving credentials or sending source. Snapshot the selection per tool invocation through missing-key handling and 401/403 retry. The result metadata extends the provider ID union with `gemini`, leaving the search tool input and result version unchanged.
+Use one plugin instance with a TUI provider picker. Persist the selected provider in OpenCode storage; an optional `decisionProvider` option initializes a fresh installation, but a subsequent TUI choice wins. Reject invalid values explicitly. With no selection, return setup guidance before resolving credentials or sending source. Read the authoritative stored choice for every status call and at the start of every tool invocation, then snapshot it through missing-key handling and 401/403 retry. Do not rely on a closure initialized once at plugin setup: another server instance or reload may have changed the choice. A storage read failure is an explicit setup failure, not an invitation to choose a default or send source. The result metadata extends the provider ID union with `gemini`, leaving the search tool input and result version unchanged.
 
 Alternative considered: choose whichever key exists. This would unexpectedly change the source recipient and make results hard to reproduce.
 
@@ -32,7 +32,29 @@ Alternative considered: adding `@google/genai`. Direct REST keeps the existing f
 
 Keep the current `fast-context` OpenCode integration ID for existing TypeSafe credentials and add a distinct Gemini credential integration ID. `GEMINI_API_KEY` takes precedence over its stored Gemini key; neither provider reads the other's key. Extend the existing RPC/TUI broker with a selected-provider identifier for status, prompt copy, verification, replacement, and revoke operations. Probe a submitted Gemini key with a tiny, source-free Decisions request that proves access to `gemini-decision-1`, using a bounded timeout; avoid a model-list probe that might validate a key without granting access to this endpoint. Store only through OpenCode's credential API. A rejected environment key never deletes the corresponding stored key; a rejected stored key can be removed and reprompted in an interactive session. Source-free validation still consumes a small amount of quota.
 
+Model selection and credential setup separately. `Unselected` or `Active(previous)` enters `Pending(target)` when the user picks a provider or runs targeted onboarding such as `/fast-context auth gemini`. Resolve an existing key or verify a new key for the target, persist the target selection last, then read status back before reporting success. If the user cancels or validation/persistence fails, retain the previous active choice and report the incomplete step. Credential storage and provider selection are different host stores, so a key saved before a selection write fails may remain available for a retry; never claim setup complete in that case. A config-supplied initial choice or revoked key can still be active without a usable credential, which is a visible missing-key state rather than a connected state.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unselected
+    Unselected --> Pending: Choose or target provider
+    Active --> Pending: Switch provider
+    Pending --> Active: Credential usable; selection persisted and read back
+    Pending --> Unselected: Cancel or failure with no previous choice
+    Pending --> Active: Cancel or failure retains previous choice
+    Active --> Searching: Search snapshots persisted choice
+    Unselected --> Fallback: Search sends no source
+```
+
+For each provider, track `absent -> verifying -> available -> rejected/revoked`; environment and stored keys remain distinct sources. `Available` only means a key resolves. A successful source-free verification or provider request supplies a time-stamped `connected` observation; an unverified stored or environment key is labeled as such, and subsequent 401/403, quota, timeout, or RPC errors change the visible observation without silently changing provider. A 429 or timeout does not falsely mark a credential invalid.
+
 Alternative considered: reuse the TypeSafe integration row for both keys. That prevents switching back safely, obscures the recipient, and risks passing a key to the wrong host.
+
+### 3a. Expose live provider status in the TUI
+
+The server status RPC returns the authoritative selected provider, credential source/presence per provider, verification or last request outcome with time, and a non-secret instance identifier. The TUI renders a compact Fast Context indicator through the additive `sidebar.footer` slot: `Choose provider`, `Gemini · no key`, `Gemini · key stored, unverified`, `Gemini · connected`, or `Gemini · error (401/429/timeout)` as appropriate. A disconnected RPC is shown as `Fast Context · status unavailable`, never as connected. A small provider status event refreshes the sidebar after selection, key save/revoke, and search outcome; initial mount and reconnect fetch status. The detailed `/fast-context auth status` dialog uses the same data and points to the next action. Do not expose keys, repository excerpts, or raw error bodies in RPC status, events, or UI.
+
+Include the server instance identifier in search diagnostics so a real-host test can detect TUI RPC and tool execution resolving to different plugin instances. If duplicate entries are loaded, surface the mismatch and avoid treating a successful key prompt as proof that the active search tool is configured. This identifier is diagnostic only; selection remains in OpenCode storage rather than a TUI-local cache.
 
 ### 4. Calibrate Gemini separately and retain safe failures
 
@@ -57,3 +79,5 @@ Google's reported 150–250 ms end-to-end request latency is a service claim und
 ## Migration Plan
 
 Add the Gemini credential integration without modifying existing `fast-context` stored keys. Select either provider from `/fast-context provider` and onboard its own key; switching back uses the still-stored TypeSafe credential. Remove the provider option to use TUI selection. No migration of keys or repository data is needed. Do not publish comparative performance claims until the paired benchmark meets its stated evidence standard.
+
+Update the self-test wizard to inspect the active provider and sidebar state after onboarding, then require an actual `fast_context_search` result reporting Gemini before it declares success. In release validation, exercise the real OpenCode TUI command through RPC, persisted storage, and the tool, including restart, a cancelled switch, and another server instance. Test failures must remain visible rather than being masked by a passing handler-level suite. Begin any PR recording only after authentication; review and remove local captures after the PR attachment is verified.

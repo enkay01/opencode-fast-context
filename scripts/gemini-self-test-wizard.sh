@@ -255,11 +255,18 @@ stage "Select Gemini and try one search"
 say "OpenCode will start in the clean checkout. Nothing is recorded during auth."
 step "Run /fast-context provider and select Gemini Decisions. Paste the key into its masked prompt."
 step "Run /fast-context auth status; it should show Gemini selected and both provider credential states."
+step "Check the sidebar says Fast Context · gemini · connected. A stored key alone is not a connection."
 step "Ask: Use fast_context_search to locate the stale credential removal function. Show the provider and cited file paths."
+step "Confirm the tool output reports provider: gemini:gemini-decision-1 rather than provider: not configured."
 step "Run /fast-context provider, select Jev, cancel its key prompt, then select Gemini again without restarting."
 step "Exit OpenCode when you have inspected the result."
 "$TEST_ROOT/run-gemini-opencode.sh"
 pause "Press Enter after reviewing the TUI result."
+confirm "Did status show Gemini selected and connected, and did the search report Gemini?" || {
+  say "Setup is incomplete. Reopen the launcher, inspect /fast-context auth status, and retry /fast-context provider."
+  say "If it still fails, report only status and provider labels; never paste the key."
+  return 1
+}
 
 stage "Review and keep the test checkout"
 say "Test checkout: $TEST_CHECKOUT"

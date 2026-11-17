@@ -21,7 +21,7 @@ test("Gemini uses its environment key without consulting the stored or TypeSafe 
   assert.equal(storedReads, 0);
 });
 
-test("Gemini stored key handles rejected credentials without touching an environment key", async () => {
+test("Gemini retries a rejected stored key with the submitted replacement", async () => {
   const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
   const oldGemini = process.env.GEMINI_API_KEY;
   const oldTypeSafe = process.env.TYPESAFE_API_KEY;
@@ -29,6 +29,7 @@ test("Gemini stored key handles rejected credentials without touching an environ
   process.env.TYPESAFE_API_KEY = "untouched-typesafe";
   let storedKey = "bad-gemini";
   let discarded = 0;
+  const sentKeys: Array<string | null> = [];
   const broker: CredentialBroker = {
     resolveStored: async () => storedKey,
     discardStored: async () => { discarded++; },
@@ -36,13 +37,18 @@ test("Gemini stored key handles rejected credentials without touching an environ
   };
   try {
     const result = await runFastContext({ root: fixture.root, query: "retryDelay", config: { decisionProvider: "gemini" }, credentials: broker,
-      overrides: { fetchImpl: (async (_url, init) =>
-        (init?.headers as Record<string, string>)["x-goog-api-key"] === "bad-gemini" ? new Response("", { status: 401 }) : good()) as typeof fetch },
+      overrides: {
+        fetchImpl: async (_url, init) => {
+          const key = new Headers(init?.headers).get("x-goog-api-key");
+          sentKeys.push(key);
+          return key === "replacement-gemini" ? good() : new Response("", { status: 401 });
+        },
+      },
     });
     assert.equal(result.status, "complete");
     assert.equal(result.provider.id, "gemini");
     assert.equal(discarded, 1);
-    assert.equal(process.env.TYPESAFE_API_KEY, "untouched-typesafe");
+    assert.deepEqual(sentKeys, ["bad-gemini", "replacement-gemini"]);
   } finally {
     if (oldGemini !== undefined) process.env.GEMINI_API_KEY = oldGemini;
     if (oldTypeSafe === undefined) delete process.env.TYPESAFE_API_KEY;

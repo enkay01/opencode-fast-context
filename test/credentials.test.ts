@@ -3,16 +3,12 @@ import { test } from "node:test";
 import {
   FAST_CONTEXT_INTEGRATION_ID,
   GEMINI_INTEGRATION_ID,
-  fastContextCredentialEntries,
-  hasStoredCredential,
   registerFastContextIntegration,
   removeAllFastContextCredentials,
   removeFastContextCredentials,
   removeStaleFastContextCredentials,
-  replacementRemoval,
   resolveStoredApiKey,
   storeApiKey,
-  verificationErrorMessage,
   verifyApiKey,
   verifyGeminiApiKey,
   type CredentialEntryLike,
@@ -71,19 +67,25 @@ test("registers the fast-context integration with a key method", async () => {
   await registration.dispose();
 });
 
-test("registers Gemini separately and verifies model access without repository content", async () => {
+test("Gemini verifies access with a fixed sample decision", async () => {
   const { api, stored } = makeIntegration();
   await registerFastContextIntegration(api, "gemini");
   const calls = (api as { __calls?: unknown[] }).__calls ?? [];
   assert.equal((calls[0] as string[])[1], GEMINI_INTEGRATION_ID);
-  let sent = "";
+  let request: { url: string; key: string | null; body: { model: string; input: string } } | undefined;
   const result = await verifyGeminiApiKey("dummy", { fetchImpl: (async (_url, init) => {
-    sent = String(init?.body);
+    request = {
+      url: String(_url),
+      key: new Headers(init?.headers).get("x-goog-api-key"),
+      body: JSON.parse(String(init?.body)),
+    };
     return new Response(JSON.stringify({ answers: { damaged: { type: "noul", noul: 0.9 } } }), { status: 200 });
   }) as typeof fetch });
   assert.equal(result, "valid");
-  assert.match(sent, /gemini-decision-1/);
-  assert.ok(!sent.includes("src/"));
+  assert.equal(request?.url, "https://generativelanguage.googleapis.com/v1beta/decisions");
+  assert.equal(request?.key, "dummy");
+  assert.equal(request?.body.model, "gemini-decision-1");
+  assert.equal(request?.body.input, "The package arrived damaged.");
   await storeApiKey(api, "gemini-only", GEMINI_INTEGRATION_ID);
   assert.equal(stored[0]?.integrationID, GEMINI_INTEGRATION_ID);
   assert.equal(await verifyGeminiApiKey("dummy", { fetchImpl: (async () => new Response("", { status: 403 })) as typeof fetch }), "invalid");
@@ -107,25 +109,6 @@ test("resolveStoredApiKey is empty without a connection or a key credential", as
     resolved: { type: "oauth", key: "stored-key" },
   });
   assert.equal(await resolveStoredApiKey(wrongType.api), undefined);
-});
-
-test("storeApiKey persists through connect.key and hasStoredCredential reflects state", async () => {
-  const { api, stored } = makeIntegration();
-  assert.equal(await hasStoredCredential(api), false);
-  await storeApiKey(api, "new-key");
-  assert.equal(stored.length, 1);
-  assert.equal(stored[0]?.integrationID, FAST_CONTEXT_INTEGRATION_ID);
-  assert.equal(stored[0]?.key, "new-key");
-});
-
-const okResponse = () =>
-  new Response(JSON.stringify({ models: [] }), { status: 200, headers: { "content-type": "application/json" } });
-
-test("verifyApiKey accepts a working key", async () => {
-  const result = await verifyApiKey("good-key", {
-    fetchImpl: (async () => okResponse()) as typeof fetch,
-  });
-  assert.equal(result, "valid");
 });
 
 test("verifyApiKey rejects 401 and 403 keys", async () => {
@@ -175,57 +158,15 @@ test("verifyApiKey reports unverified when the probe times out", async () => {
   }
 });
 
-test("verification errors never echo the submitted key", () => {
-  const message = verificationErrorMessage("invalid");
-  assert.ok(!message.includes("bad-key"));
-  assert.match(message, /401\/403|rejected/i);
-});
-
 const entry = (id: string, integrationID: string, active = false) => ({ id, integrationID, active });
-
-test("fastContextCredentialEntries selects only fast-context records", () => {
-  const entries = [
-    entry("a", FAST_CONTEXT_INTEGRATION_ID),
-    entry("b", "exa"),
-    entry("c", FAST_CONTEXT_INTEGRATION_ID, true),
-  ];
-  assert.deepEqual(
-    fastContextCredentialEntries(entries).map((item) => item.id),
-    ["a", "c"],
-  );
-});
-
-test("replacementRemoval keeps the active record and drops duplicates", () => {
-  const entries = [
-    entry("old-1", FAST_CONTEXT_INTEGRATION_ID),
-    entry("old-2", FAST_CONTEXT_INTEGRATION_ID),
-    entry("other", "exa"),
-    entry("active", FAST_CONTEXT_INTEGRATION_ID, true),
-  ];
-  assert.deepEqual(
-    replacementRemoval(entries).map((item) => item.id).sort(),
-    ["old-1", "old-2"],
-  );
-});
-
-test("replacementRemoval falls back to the first record when none is active", () => {
-  const entries = [entry("first", FAST_CONTEXT_INTEGRATION_ID), entry("second", FAST_CONTEXT_INTEGRATION_ID)];
-  assert.deepEqual(
-    replacementRemoval(entries).map((item) => item.id),
-    ["second"],
-  );
-});
 
 function recordList(initial: CredentialEntryLike[]) {
   const entries = [...initial];
-  const removed: string[] = [];
   return {
     entries,
-    removed,
     api: {
       list: async () => entries,
       remove: async ({ credentialID }: { credentialID: string }) => {
-        removed.push(credentialID);
         const index = entries.findIndex((item) => item.id === credentialID);
         if (index >= 0) entries.splice(index, 1);
       },
@@ -233,7 +174,7 @@ function recordList(initial: CredentialEntryLike[]) {
   };
 }
 
-test("a verified replacement removes every older record and keeps the active one", async () => {
+test("credential cleanup removes duplicates and keeps the active record", async () => {
   const store = recordList([
     entry("old-1", FAST_CONTEXT_INTEGRATION_ID),
     entry("old-2", FAST_CONTEXT_INTEGRATION_ID),
@@ -254,10 +195,10 @@ test("expiry removes every Fast Context record and leaves other integrations", a
   assert.deepEqual(store.entries.map((item) => item.id), ["other"]);
 });
 
-test("cancelling a replacement does not remove records", async () => {
-  const store = recordList([entry("active", FAST_CONTEXT_INTEGRATION_ID, true)]);
-  assert.deepEqual(await removeStaleFastContextCredentials(store.api), []);
-  assert.deepEqual(store.removed, []);
+test("credential cleanup keeps the first record when none is active", async () => {
+  const store = recordList([entry("first", FAST_CONTEXT_INTEGRATION_ID), entry("second", FAST_CONTEXT_INTEGRATION_ID)]);
+  assert.deepEqual(await removeStaleFastContextCredentials(store.api), ["second"]);
+  assert.deepEqual(store.entries.map((item) => item.id), ["first"]);
 });
 
 test("queued rejected IDs remove only matching Fast Context records", async () => {

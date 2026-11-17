@@ -4,6 +4,8 @@ coverage/
 .env.*
 .env.local
 .env
+!/scripts/validation/.env.schema
+/.validation-output/
 # benchmark checkouts and raw transcripts stay local
 bench/repos/
 bench/runs/

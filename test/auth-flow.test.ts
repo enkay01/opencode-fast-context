@@ -26,19 +26,16 @@ interface EmittedRequest {
   reason: string;
 }
 
-function makeContext(root: string, options?: { storedKey?: string; storedGeminiKey?: string; decisionProvider?: "jev" | "gemini" | null; savedProvider?: "jev" | "gemini" }) {
+function makeContext(root: string, options: { storedKey?: string; storedGeminiKey?: string; decisionProvider?: "jev" | "gemini" | null; savedProvider?: "jev" | "gemini" } = {}) {
   const tools: Array<{ name: string; execute: (input: unknown, ctx: unknown) => Promise<{ content: string }> }> = [];
   const handlers = new Map<string, (input: unknown) => Promise<unknown>>();
   const emitted: EmittedRequest[] = [];
   const stored: Array<{ integrationID: string; key: string }> = [];
-  let activeKey = options?.storedKey;
-  let activeGeminiKey = options?.storedGeminiKey;
-
   const context = {
-    options: options?.decisionProvider === null ? {} : { decisionProvider: options?.decisionProvider ?? "jev" },
+    options: options.decisionProvider === null ? {} : { decisionProvider: options.decisionProvider ?? "jev" },
     storage: {
-      get: async () => options?.savedProvider,
-      set: async (_key: string, value: "jev" | "gemini") => { if (options) options.savedProvider = value; },
+      get: async () => options.savedProvider,
+      set: async (_key: string, value: "jev" | "gemini") => { options.savedProvider = value; },
     },
     location: { directory: root },
     integration: {
@@ -51,17 +48,25 @@ function makeContext(root: string, options?: { storedKey?: string; storedGeminiK
         return { dispose: async () => undefined };
       },
       connection: {
-        active: async (id: string) => ((id === GEMINI_INTEGRATION_ID ? activeGeminiKey : activeKey) === undefined ? undefined : { type: "credential", id: id === GEMINI_INTEGRATION_ID ? "cred-gemini" : "cred-1" }),
+        active: async (id: string) => {
+          if (id === GEMINI_INTEGRATION_ID) {
+            return options.storedGeminiKey === undefined ? undefined : { type: "credential", id: "cred-gemini" };
+          }
+          if (id === FAST_CONTEXT_INTEGRATION_ID && options.storedKey !== undefined) {
+            return { type: "credential", id: "cred-1" };
+          }
+          return undefined;
+        },
         resolve: async (connection: { id: string }) => {
-          const key = connection.id === "cred-gemini" ? activeGeminiKey : activeKey;
+          const key = connection.id === "cred-gemini" ? options.storedGeminiKey : options.storedKey;
           return key === undefined ? undefined : { type: "key", key };
         },
       },
       connect: {
-        key: async (input: { integrationID: string; key: string }) => {
-          stored.push(input);
-          if (input.integrationID === GEMINI_INTEGRATION_ID) activeGeminiKey = input.key;
-          else activeKey = input.key;
+        key: async ({ integrationID, key }: { integrationID: string; key: string }) => {
+          stored.push({ integrationID, key });
+          if (integrationID === GEMINI_INTEGRATION_ID) options.storedGeminiKey = key;
+          if (integrationID === FAST_CONTEXT_INTEGRATION_ID) options.storedKey = key;
           return {};
         },
       },
@@ -99,15 +104,15 @@ async function waitForRequests(emitted: EmittedRequest[], count: number) {
 }
 
 function stubFetch(handlers: {
-  models?: () => Response;
-  systemone?: () => Response;
+  models?: (init?: RequestInit) => Response;
+  systemone?: (init?: RequestInit) => Response;
   decisions?: (input?: RequestInit) => Response;
 }) {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url === MODELS_URL) return (handlers.models ?? (() => new Response("{}", { status: 200 })))();
-    if (url === SYSTEMONE_URL) return (handlers.systemone ?? jevOk)();
+    if (url === MODELS_URL) return (handlers.models ?? (() => new Response("{}", { status: 200 })))(init);
+    if (url === SYSTEMONE_URL) return (handlers.systemone ?? jevOk)(init);
     if (url === GEMINI_URL) return (handlers.decisions ?? (() => new Response(JSON.stringify({ answers: { relevant: { type: "noul", noul: 0.9 } } }), { status: 200 })))(init);
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
@@ -128,8 +133,12 @@ test("first unauthenticated search emits a prompt request; a bad key fails inlin
   await withoutEnv(async () => {
     const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
     const restore = stubFetch({
-      models: () => new Response("denied", { status: 401 }),
-      systemone: jevOk,
+      models: (init) => new Response("{}", {
+        status: new Headers(init?.headers).get("authorization") === "Bearer good-key" ? 200 : 401,
+      }),
+      systemone: (init) => new Headers(init?.headers).get("authorization") === "Bearer good-key"
+        ? jevOk()
+        : new Response("denied", { status: 401 }),
     });
     try {
       const { context, tools, handlers, emitted, stored } = makeContext(fixture.root);
@@ -146,51 +155,15 @@ test("first unauthenticated search emits a prompt request; a bad key fails inlin
       })) as { ok: boolean; error?: string };
       assert.equal(rejected.ok, false);
       assert.match(rejected.error ?? "", /rejected|401\/403/i);
+      assert.ok(!rejected.error?.includes("bad-key"));
       assert.equal(stored.length, 0);
 
-      // The /v1/models stub still rejects, so the second submission fails too
-      // and the search keeps waiting for a valid key or a cancel.
-      const accepted = (await handlers.get("submitKey")!({
-        requestId: emitted[0]!.requestId,
-        key: "good-key",
-      })) as { ok: boolean };
-      assert.equal(accepted.ok, false);
-      assert.equal(stored.length, 0);
-
-      await handlers.get("cancel")!({ requestId: emitted[0]!.requestId });
-      const result = await pending;
-      assert.match(result.content, /fallback_required/);
-    } finally {
-      restore();
-      await fixture.cleanup();
-    }
-  });
-});
-
-test("a verified key submitted through the prompt is stored and the search completes", async () => {
-  await withoutEnv(async () => {
-    const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
-    let modelsStatus = 401;
-    const restore = stubFetch({
-      models: () => new Response("{}", { status: modelsStatus }),
-      systemone: jevOk,
-    });
-    try {
-      const { context, tools, handlers, emitted, stored } = makeContext(fixture.root);
-      await plugin.setup(context as never);
-      await handlers.get("attach")!({ sessions: [SESSION] });
-
-      const pending = tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
-      await waitForRequests(emitted, 1);
-
-      modelsStatus = 200;
       const accepted = (await handlers.get("submitKey")!({
         requestId: emitted[0]!.requestId,
         key: "good-key",
       })) as { ok: boolean };
       assert.equal(accepted.ok, true);
-      assert.equal(stored.length, 1);
-      assert.equal(stored[0]!.key, "good-key");
+      assert.deepEqual(stored, [{ integrationID: FAST_CONTEXT_INTEGRATION_ID, key: "good-key" }]);
 
       const result = await pending;
       assert.match(result.content, /status: complete/);
@@ -206,7 +179,7 @@ test("cancelling the prompt settles the search as fallback_required", async () =
     const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
     const restore = stubFetch({ systemone: jevOk });
     try {
-      const { context, tools, handlers, emitted } = makeContext(fixture.root);
+      const { context, tools, handlers, emitted, stored } = makeContext(fixture.root);
       await plugin.setup(context as never);
       await handlers.get("attach")!({ sessions: [SESSION] });
 
@@ -216,6 +189,7 @@ test("cancelling the prompt settles the search as fallback_required", async () =
 
       const result = await pending;
       assert.match(result.content, /fallback_required/);
+      assert.deepEqual(stored, []);
     } finally {
       restore();
       await fixture.cleanup();
@@ -226,12 +200,13 @@ test("cancelling the prompt settles the search as fallback_required", async () =
 test("an expired stored credential triggers a replacement prompt", async () => {
   await withoutEnv(async () => {
     const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
-    let systemoneCalls = 0;
+    const requestKeys: Array<string | null> = [];
     const restore = stubFetch({
       models: () => new Response("{}", { status: 200 }),
-      systemone: () => {
-        systemoneCalls += 1;
-        return systemoneCalls === 1 ? new Response("denied", { status: 401 }) : jevOk();
+      systemone: (init) => {
+        const key = new Headers(init?.headers).get("authorization");
+        requestKeys.push(key);
+        return key === "Bearer replacement-key" ? jevOk() : new Response("denied", { status: 401 });
       },
     });
     try {
@@ -251,6 +226,7 @@ test("an expired stored credential triggers a replacement prompt", async () => {
 
       const result = await pending;
       assert.match(result.content, /status: complete/);
+      assert.deepEqual(requestKeys, ["Bearer expired-key", "Bearer replacement-key"]);
     } finally {
       restore();
       await fixture.cleanup();
@@ -331,13 +307,18 @@ test("status reports credential sources without exposing values and detach disab
     const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
     const restore = stubFetch({ systemone: jevOk });
     try {
-      const { context, tools, handlers, emitted } = makeContext(fixture.root);
+      const { context, tools, handlers, emitted } = makeContext(fixture.root, { storedGeminiKey: "stored-gemini-key" });
       await plugin.setup(context as never);
 
-      const status = (await handlers.get("status")!({})) as { provider: string; env: boolean; stored: boolean };
+      const status = (await handlers.get("status")!({})) as {
+        provider: string;
+        jev: { env: boolean; stored: boolean };
+        gemini: { env: boolean; stored: boolean };
+      };
       assert.equal(status.provider, "jev");
       assert.deepEqual(status.jev, { env: false, stored: false });
-      assert.deepEqual(status.gemini, { env: Boolean(process.env.GEMINI_API_KEY), stored: false });
+      assert.deepEqual(status.gemini, { env: Boolean(process.env.GEMINI_API_KEY), stored: true });
+      assert.ok(!JSON.stringify(status).includes("stored-gemini-key"));
 
       await handlers.get("attach")!({ sessions: [SESSION] });
       await handlers.get("detach")!({});
@@ -373,9 +354,10 @@ test("Gemini prompt verifies and stores only its own key, then search uses Gemin
     assert.equal((emitted[0] as EmittedRequest & { provider: string }).provider, "gemini");
     const accepted = (await handlers.get("submitKey")!({ requestId: emitted[0]!.requestId, key: "gemini-stored" })) as { ok: boolean };
     assert.equal(accepted.ok, true);
-    assert.equal(stored[0]?.integrationID, GEMINI_INTEGRATION_ID);
+    assert.deepEqual(stored, [{ integrationID: GEMINI_INTEGRATION_ID, key: "gemini-stored" }]);
     const result = await pending;
     assert.match(result.content, /provider: gemini:gemini-decision-1/);
+    assert.match(result.content, /status: complete/);
   } finally {
     restore();
     if (previous !== undefined) process.env.GEMINI_API_KEY = previous;
@@ -388,7 +370,19 @@ test("one plugin switches providers and retains the choice without mixing creden
   delete process.env.GEMINI_API_KEY;
   await withoutEnv(async () => {
     const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
-    const restore = stubFetch({ systemone: jevOk });
+    const restore = stubFetch({
+      systemone: (init) => new Headers(init?.headers).get("authorization") === "Bearer jev-key"
+        ? jevOk()
+        : new Response("denied", { status: 401 }),
+      decisions: (init) => {
+        if (new Headers(init?.headers).get("x-goog-api-key") !== "gemini-key") {
+          return new Response("denied", { status: 401 });
+        }
+        const { questions } = JSON.parse(String(init?.body));
+        const question = questions.damaged ? "damaged" : "relevant";
+        return Response.json({ answers: { [question]: { type: "noul", noul: 0.9 } } });
+      },
+    });
     const options: { storedKey: string; storedGeminiKey: string; decisionProvider: null; savedProvider?: "jev" | "gemini" } = {
       storedKey: "jev-key", storedGeminiKey: "gemini-key", decisionProvider: null,
     };
@@ -397,13 +391,15 @@ test("one plugin switches providers and retains the choice without mixing creden
       const dispose = await plugin.setup(first.context as never);
       const unselected = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       assert.match(unselected.content, /Select Jev or Gemini/);
-      await first.handlers.get("selectProvider")!({ provider: "gemini" });
+      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "gemini" }), { provider: "gemini", ok: true });
       const gemini = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
+      assert.match(gemini.content, /status: complete/);
       assert.match(gemini.content, /provider: gemini:gemini-decision-1/);
-      await first.handlers.get("selectProvider")!({ provider: "jev" });
+      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "jev" }), { provider: "jev", ok: true });
       const jev = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
+      assert.match(jev.content, /status: complete/);
       assert.match(jev.content, /provider: jev:/);
-      await first.handlers.get("selectProvider")!({ provider: "gemini" });
+      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "gemini" }), { provider: "gemini", ok: true });
       await dispose?.();
 
       const reloaded = makeContext(fixture.root, options);
@@ -418,4 +414,36 @@ test("one plugin switches providers and retains the choice without mixing creden
     }
   });
   if (previousGemini !== undefined) process.env.GEMINI_API_KEY = previousGemini;
+});
+
+test("a key can be stored before selection, and another server instance observes the later choice", async () => {
+  const previous = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
+  const restore = stubFetch({ decisions: (init) => {
+    const body = JSON.parse(String(init?.body)) as { questions: { damaged?: unknown } };
+    return new Response(JSON.stringify({ answers: body.questions.damaged
+      ? { damaged: { type: "noul", noul: 0.9 } }
+      : { relevant: { type: "noul", noul: 0.9 } } }), { status: 200 });
+  } });
+  const options: { decisionProvider: null; savedProvider?: "jev" | "gemini"; storedGeminiKey?: string } = { decisionProvider: null };
+  try {
+    const first = makeContext(fixture.root, options);
+    const second = makeContext(fixture.root, options);
+    await plugin.setup(first.context as never);
+    await plugin.setup(second.context as never);
+    const saved = await first.handlers.get("submitKey")!({ provider: "gemini", key: "test-gemini" }) as { ok: boolean };
+    assert.equal(saved.ok, true);
+    assert.deepEqual(first.stored, [{ integrationID: GEMINI_INTEGRATION_ID, key: "test-gemini" }]);
+    assert.equal((await first.handlers.get("status")!({}) as { provider: string | null }).provider, null);
+    assert.equal((await first.handlers.get("selectProvider")!({ provider: "gemini" }) as { ok: boolean }).ok, true);
+    assert.equal((await second.handlers.get("status")!({}) as { provider: string }).provider, "gemini");
+    const result = await second.tools[0]!.execute({ query: "retryDelay" }, { sessionID: HEADLESS });
+    assert.match(result.content, /provider: gemini:gemini-decision-1/);
+    assert.match(result.content, /status: complete/);
+  } finally {
+    restore();
+    if (previous !== undefined) process.env.GEMINI_API_KEY = previous;
+    await fixture.cleanup();
+  }
 });

@@ -105,7 +105,8 @@ export interface VerifyOptions extends ProviderOverrides {
   timeoutMs?: number;
 }
 
-const DEFAULT_VERIFY_TIMEOUT_MS = 5000;
+// Cold connections can take several seconds before a provider responds.
+const DEFAULT_VERIFY_TIMEOUT_MS = 12_000;
 
 /**
  * Probes the TypeSafe API with the candidate key before it is persisted.

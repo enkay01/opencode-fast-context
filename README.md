@@ -82,7 +82,7 @@ The environment key always wins. A stored credential is only consulted when no e
 
 ### Interactive onboarding
 
-Run `/fast-context provider` to choose Jev or Gemini in the TUI. A provider without a key opens its own masked prompt. The key is verified live with the chosen service before anything is stored; a rejected key shows an inline error without being saved. Dismissing the prompt keeps the provider choice, and a search without its key returns `fallback_required` so ordinary tools can continue.
+Run `/fast-context provider` to choose Jev or Gemini in the TUI. A provider without a key opens its own masked prompt. The key is verified live with the chosen service before anything is stored; a rejected key shows an inline error without being saved. Cancelling a switch keeps the previous provider active. A selected provider without a usable key returns `fallback_required` so ordinary tools can continue. The sidebar shows the active provider and its connection state; a key listed as present is not necessarily verified.
 
 A stored key that TypeSafe later rejects (HTTP 401 or 403) is treated as expired: the stale record is removed before the replacement prompt appears on the next search. If no interactive client can prompt, the record is removed when one next attaches and the search returns `fallback_required`.
 
@@ -93,7 +93,7 @@ The key is persisted only through OpenCode's native integration credential store
 In the OpenCode TUI:
 
 - `/fast-context provider` chooses the active provider and starts its onboarding when needed;
-- `/fast-context auth` stores or replaces the selected provider's key; `/fast-context auth gemini` targets Gemini directly;
+- `/fast-context auth` stores or replaces the selected provider's key; `/fast-context auth gemini` verifies its key and activates Gemini;
 - `/fast-context auth status` shows both credential sources without exposing values;
 - `/fast-context auth revoke` removes the selected provider's stored key after confirmation. Environment keys and the other provider's records are unaffected.
 
@@ -126,11 +126,11 @@ Optional plugin options:
 | `autoInvoke` | `"suggest"` or `"off"` | `"suggest"` | Adds one session instruction telling the model when to call `fast_context_search`. |
 | `decisionProvider` | `"jev"` or `"gemini"` | none | Optional initial selection. An invalid value fails before source is sent. |
 
-Run `/fast-context provider` in the OpenCode TUI to select Jev or Gemini. If that provider has no credential, its own masked onboarding prompt opens. The choice persists in OpenCode storage and can be changed again without restarting. `/fast-context auth gemini` and `/fast-context auth set jev` manage each key separately. Without a selection, a search asks you to select a provider and sends no source. The optional `decisionProvider` plugin option sets an initial selection; omit it to control selection in the TUI. No automatic provider switch occurs on error.
+Run `/fast-context provider` in the OpenCode TUI to select Jev or Gemini. If that provider has no credential, its own masked onboarding prompt opens. A successful key setup activates the provider and confirms persisted status; a cancelled or failed switch retains the previous choice. `/fast-context auth gemini` and `/fast-context auth set jev` each set up and activate the named provider. Without a selection, a search asks you to select a provider and sends no source. The optional `decisionProvider` plugin option sets an initial selection; omit it to control selection in the TUI. No automatic provider switch occurs on error.
 
 Gemini uses `GEMINI_API_KEY` from the OpenCode server environment, then a separate OpenCode credential stored under `fast-context-gemini`, then a masked prompt in an interactive TUI. `/fast-context auth status` shows both credential states; `/fast-context auth revoke` removes only the selected provider's stored key. Existing TypeSafe credentials remain under `fast-context` and are retained when switching. Never put either key in plugin options, a repository file, or chat.
 
-To create a key and try the draft Gemini provider in a clean project checkout, run [`./scripts/gemini-self-test-wizard.sh`](scripts/gemini-self-test-wizard.sh). It hands key entry to OpenCode's masked prompt. See the [TUI recording plan](docs/GEMINI_TUI_RECORDING_PLAN.md) for reviewable PR evidence after authentication.
+Use [TUI validation](docs/TUI_VALIDATION.md) to build the current checkout, drive both providers through a private OpenCode TUI, and capture screenshots. The mock run needs no API keys. The live run loads both keys from the main checkout through Varlock, including when launched from a linked worktree.
 
 `suggest` adds this guidance to model context:
 

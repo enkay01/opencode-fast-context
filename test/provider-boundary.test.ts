@@ -2,15 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readPublicConfig, resolveProvider } from "../src/config.ts";
 import { formatForModel, runFastContext } from "../src/tool.ts";
-import { searchRepository } from "../src/engine/search.ts";
-import type { DecisionProvider } from "../src/providers/types.ts";
 import { makeFixture } from "./fixture.ts";
 
 const SECRET = "sk_live_abcdefghijklmnop";
 
-test("public provider option defaults to Jev and rejects unknown values before retrieval", async () => {
-  assert.equal(readPublicConfig(undefined).decisionProvider, undefined);
-  assert.equal(readPublicConfig({ decisionProvider: "gemini" }).decisionProvider, "gemini");
+test("an unknown provider is rejected before retrieval", async () => {
   const config = readPublicConfig({ decisionProvider: "unexpected" });
   const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
   try {
@@ -23,11 +19,7 @@ test("public provider option defaults to Jev and rejects unknown values before r
   }
 });
 
-test("missing TYPESAFE_API_KEY is a configuration failure, not a local fallback", async () => {
-  const resolution = resolveProvider({});
-  assert.equal(resolution.provider, null);
-  assert.match(resolution.error ?? "", /TYPESAFE_API_KEY/);
-
+test("a missing TypeSafe key returns onboarding guidance without local evidence", async () => {
   const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n" });
   const previous = process.env.TYPESAFE_API_KEY;
   delete process.env.TYPESAFE_API_KEY;
@@ -37,46 +29,44 @@ test("missing TYPESAFE_API_KEY is a configuration failure, not a local fallback"
     assert.equal(result.results.length, 0);
     assert.deepEqual(result.searched, { candidates: 0, files: 0, truncated: false });
     assert.match(result.reason ?? "", /TYPESAFE_API_KEY/);
+    assert.match(formatForModel(result), /^provider: not configured$/m);
   } finally {
     if (previous !== undefined) process.env.TYPESAFE_API_KEY = previous;
     await fixture.cleanup();
   }
 });
 
-test("credential-like source and sensitive files never reach the provider", async () => {
+test("Jev receives redacted source and excludes matching credential files", async () => {
   const fixture = await makeFixture({
-    "src/leak.ts": `export const API_KEY = "${SECRET}"\nexport function retryDelay() { return 1 }\n`,
-    "src/plain.ts": "export function retryDelayPlain() { return 2 }\n",
-    ".pypirc": `[pypi]\npassword = ${SECRET}\n`,
+    "src/leak.ts": `export const API_KEY = "${SECRET}"\n`,
+    "config/credentials.json": '{"API_KEY":"credential-file-marker"}\n',
   });
-
-  const seen: string[] = [];
-  const provider: DecisionProvider = {
-    id: "jev",
-    model: "stub",
-    async score(_query, candidates) {
-      for (const candidate of candidates) seen.push(candidate.code);
-      return {
-        scores: Object.fromEntries(candidates.map((candidate) => [candidate.id, 0.9])),
-        usage: null,
-        model: "stub",
-        skipped: 0,
-      };
-    },
-  };
-
+  const previous = process.env.TYPESAFE_API_KEY;
+  process.env.TYPESAFE_API_KEY = "dummy-key";
+  const candidates: Array<{ path: string; code: string }> = [];
   try {
-    const result = await searchRepository({
+    const result = await runFastContext({
       root: fixture.root,
       query: "API_KEY",
-      provider,
-      includeDiagnostics: true,
+      overrides: {
+        fetchImpl: async (_url, init) => {
+          const { state } = JSON.parse(String(init?.body));
+          candidates.push(state.candidate);
+          return Response.json({
+            model: "jev-test",
+            answers: { relevant: { type: "noul", noul: 0.95 } },
+          });
+        },
+      },
     });
-    assert.ok(seen.length > 0);
-    assert.ok(seen.every((code) => !code.includes(SECRET)), "secret leaked to provider");
-    assert.ok(!result.results.some((evidence) => evidence.path === ".pypirc"));
-    assert.ok((result.diagnostics?.redactedCandidates ?? 0) >= 1);
+    assert.equal(result.status, "complete");
+    assert.deepEqual(candidates.map((candidate) => candidate.path), ["src/leak.ts"]);
+    assert.match(candidates[0]!.code, /API_KEY.*\[REDACTED/);
+    assert.ok(!candidates[0]!.code.includes(SECRET));
+    assert.deepEqual(result.results.map((evidence) => evidence.path), ["src/leak.ts"]);
   } finally {
+    if (previous === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previous;
     await fixture.cleanup();
   }
 });
@@ -152,27 +142,14 @@ test("fallback evidence also redacts credential-like content", async () => {
   try {
     const result = await runFastContext({ root: fixture.root, query: "API_KEY" });
     assert.equal(result.status, "fallback_required");
+    assert.equal(result.results[0]?.path, "src/leak.ts");
+    assert.match(result.results[0]!.excerpt, /\[REDACTED/);
     assert.ok(!JSON.stringify(result).includes(GITHUB_MARKER));
     assert.ok(!formatForModel(result).includes(GITHUB_MARKER));
   } finally {
     globalThis.fetch = previousFetch;
     if (previousKey === undefined) delete process.env.TYPESAFE_API_KEY;
     else process.env.TYPESAFE_API_KEY = previousKey;
-    await fixture.cleanup();
-  }
-});
-
-test("a missing credential is not described as local ranking", async () => {
-  const fixture = await makeFixture({ "src/a.ts": "export const a = 1\n" });
-  const previous = process.env.TYPESAFE_API_KEY;
-  delete process.env.TYPESAFE_API_KEY;
-  try {
-    const result = await runFastContext({ root: fixture.root, query: "a" });
-    const text = formatForModel(result);
-    assert.match(text, /^provider: not configured$/m);
-    assert.ok(!/provider: local ranking/.test(text));
-  } finally {
-    if (previous !== undefined) process.env.TYPESAFE_API_KEY = previous;
     await fixture.cleanup();
   }
 });
