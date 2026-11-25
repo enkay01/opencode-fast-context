@@ -1,3 +1,4 @@
+import type { ProviderFailure } from "./providers/types.ts";
 /**
  * Typed contract between the Fast Context server part and its TUI part.
  * The server registers these methods and emits `request` events when a
@@ -104,6 +105,10 @@ export declare const FastContextAuthRpc: {
                     readonly stored: {
                         readonly type: "boolean";
                     };
+                    readonly source: {
+                        readonly type: readonly ["string", "null"];
+                        readonly enum: readonly ["env", "store", null];
+                    };
                     readonly jev: {
                         readonly type: "object";
                         readonly properties: {
@@ -140,11 +145,38 @@ export declare const FastContextAuthRpc: {
                     readonly checkedAt: {
                         readonly type: "number";
                     };
+                    readonly verifiedAt: {
+                        readonly type: "number";
+                    };
                     readonly failure: {
                         readonly type: "string";
+                        readonly enum: readonly ["401", "403", "429", "timeout", "provider unavailable"];
                     };
                 };
-                readonly required: readonly ["provider", "env", "stored", "jev", "gemini", "instanceID", "connection"];
+                readonly required: readonly ["provider", "env", "stored", "source", "jev", "gemini", "instanceID", "connection"];
+                readonly additionalProperties: false;
+            };
+        };
+        readonly credentialRevoked: {
+            readonly input: {
+                readonly type: "object";
+                readonly properties: {
+                    readonly provider: {
+                        readonly type: "string";
+                        readonly enum: readonly ["jev", "gemini"];
+                    };
+                };
+                readonly required: readonly ["provider"];
+                readonly additionalProperties: false;
+            };
+            readonly output: {
+                readonly type: "object";
+                readonly properties: {
+                    readonly ok: {
+                        readonly type: "boolean";
+                    };
+                };
+                readonly required: readonly ["ok"];
                 readonly additionalProperties: false;
             };
         };
@@ -171,6 +203,9 @@ export declare const FastContextAuthRpc: {
                         readonly type: "boolean";
                     };
                     readonly error: {
+                        readonly type: "string";
+                    };
+                    readonly instanceID: {
                         readonly type: "string";
                     };
                 };
@@ -278,7 +313,9 @@ export interface AuthStatus {
     instanceID: string;
     connection: "unselected" | "missing" | "unverified" | "connected" | "error";
     checkedAt?: number;
-    failure?: string;
+    verifiedAt?: number;
+    failure?: ProviderFailure;
+    source: "env" | "store" | null;
     env: boolean;
     stored: boolean;
     jev: {

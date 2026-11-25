@@ -33,6 +33,15 @@ interface RecordLike {
   };
 }
 
+export function buildPairedReport(
+  manifest: Record<string, unknown> & { variants: Array<{ id: string; label: string; provider: string; model: string | null }> },
+  records: Array<RecordLike & { variantId: string }>,
+): string {
+  return manifest.variants.map(({ id, label, provider, model }) => buildReport({
+    ...manifest, arm: `${label} (${id})`, provider, providerModel: model,
+  }, records.filter((record) => record.variantId === id))).join("\n---\n\n");
+}
+
 export function buildReport(manifest: Record<string, unknown>, records: RecordLike[]): string {
   const elapsed = records.map((record) => record.elapsedMs);
   const usage = records.reduce(
@@ -72,7 +81,8 @@ export function buildReport(manifest: Record<string, unknown>, records: RecordLi
   lines.push("| Metric | Value |");
   lines.push("| --- | ---: |");
   lines.push(`| Runs | ${records.length} |`);
-  lines.push(`| Valid completion | ${pct(records.filter((record) => record.metrics.validCompletion).length / records.length)} |`);
+  const completed = records.filter(({ metrics }) => metrics.validCompletion && !["fallback_required", "cancelled"].includes(metrics.status));
+  lines.push(`| Valid completion | ${pct(completed.length / records.length)} |`);
   lines.push(`| Median time | ${median(elapsed) ?? "n/a"} ms |`);
   lines.push(`| p95 time | ${percentile(elapsed, 95) ?? "n/a"} ms |`);
   lines.push(
@@ -95,7 +105,7 @@ export function buildReport(manifest: Record<string, unknown>, records: RecordLi
   );
   lines.push(`| Absent-answer correct | ${absentSummary(records)} |`);
   lines.push(`| Truncated results | ${records.filter((record) => record.result.truncated).length} |`);
-  lines.push(`| Fallback required | ${records.filter((record) => record.result.status === "fallback_required").length} |`);
+  lines.push(`| Fallback required | ${records.filter((record) => record.metrics.status === "fallback_required").length} |`);
   const requests = records.flatMap((record) => record.providerRequests ?? []);
   lines.push(`| Provider calls | ${requests.length} |`);
   lines.push(`| Provider 429 responses | ${requests.filter((request) => request.status === 429).length} |`);

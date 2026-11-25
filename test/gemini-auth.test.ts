@@ -6,6 +6,46 @@ import { makeFixture } from "./fixture.ts";
 
 const good = () => new Response(JSON.stringify({ answers: { relevant: { type: "noul", noul: 0.8 } }, usage: { total_input_tokens: 10, total_output_tokens: 0 } }), { status: 200 });
 
+test("the tool uses Gemini's own threshold and leaves Jev at 0.15", async (t) => {
+  const fixture = await makeFixture({ "src/a.ts": "export const retryDelay = 1\n", "src/b.ts": "export const retryDelay = 2\n" });
+  t.after(fixture.cleanup);
+  for (const name of ["GEMINI_API_KEY", "TYPESAFE_API_KEY"]) {
+    const previous = process.env[name];
+    delete process.env[name];
+    t.after(() => { if (previous !== undefined) process.env[name] = previous; });
+  }
+
+  for (const decisionProvider of ["jev", "gemini"] as const) {
+    const search = (best: number, failure = false) => runFastContext({
+      root: fixture.root,
+      query: "retryDelay",
+      config: { decisionProvider },
+      credentials: { resolveStored: async () => "fixture-key" },
+      overrides: {
+        geminiMinDecision: 0.65,
+        fetchImpl: async (_url, init) => {
+          if (failure) return new Response("fixture response body", { status: 429 });
+          const { input, state, questions } = JSON.parse(String(init?.body));
+          const score = JSON.stringify(input ?? state).includes("src/b.ts") ? best : 0.05;
+          return Response.json({ answers: Object.fromEntries(Object.keys(questions).map((id) => [id, { type: "noul", noul: score }])) });
+        },
+      },
+    });
+    const ranked = await search(0.9);
+    assert.equal(ranked.version, 1);
+    assert.equal(ranked.provider.id, decisionProvider);
+    assert.equal(ranked.status, "complete");
+    assert.equal(ranked.results[0]?.path, "src/b.ts");
+    assert.equal((await search(0.4)).status, decisionProvider === "jev" ? "complete" : "no_match");
+    assert.equal((await search(0.1)).status, "no_match");
+    const failed = await search(0.9, true);
+    assert.equal(failed.status, "fallback_required");
+    assert.equal(failed.provider.id, decisionProvider);
+    assert.match(failed.reason ?? "", /HTTP 429/);
+    assert.doesNotMatch(failed.reason ?? "", /fixture response body/);
+  }
+});
+
 test("Gemini uses its environment key without consulting the stored or TypeSafe key", async () => {
   let storedReads = 0;
   let header = "";

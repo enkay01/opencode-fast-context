@@ -140,6 +140,7 @@ export async function toResult(
       results: valid,
       truncated: invalid > 0,
       candidateCount: parsed.citations.length,
+      searched: { candidates: 0, files: 0, truncated: false },
       provider: { id: "none", model: null, usage: null },
       timings: { discovery: 0, ranking: 0, total: 0 },
       ...(invalid > 0 ? { reason: `${invalid} citation(s) failed validation` } : {}),

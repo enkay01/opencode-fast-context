@@ -5,7 +5,7 @@ import {
 } from "./config.ts";
 import { searchRepository } from "./engine/search.ts";
 import { normalizeAutoInvoke } from "./guidance.ts";
-import { ProviderError, type DecisionProvider } from "./providers/types.ts";
+import { describeProviderFailure, ProviderError, type DecisionProvider, type ProviderFailure, type ScoreResult } from "./providers/types.ts";
 import type { SearchResult } from "./types.ts";
 
 export type AuthRequestReason = "missing" | "expired";
@@ -43,6 +43,7 @@ export interface RunOptions {
   sessionID?: string;
   /** Credential store and interactive prompt bridge; absent means env-only. */
   credentials?: CredentialBroker;
+  onProviderOutcome?: (source: "env" | "store", failure?: ProviderFailure) => void;
 }
 
 const AUTH_FAILURE_STATUSES = new Set([401, 403]);
@@ -51,20 +52,27 @@ function isAuthFailure(error: unknown): boolean {
   return error instanceof ProviderError && error.status !== null && AUTH_FAILURE_STATUSES.has(error.status);
 }
 
-/** Wraps a provider so the first HTTP 401/403 surfaces to the caller. */
-function observeAuthFailures(provider: DecisionProvider, onAuthFailure: (status: number) => void): DecisionProvider {
-  const wrap = <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+function observeRequests(
+  provider: DecisionProvider,
+  onAuthFailure: (status: number) => void,
+  onOutcome: (failure?: ProviderFailure) => void,
+): DecisionProvider {
+  const wrap = <A extends unknown[], R>(fn: (...args: A) => Promise<R>, report?: (result: R) => void) =>
     async (...args: A): Promise<R> => {
       try {
-        return await fn(...args);
+        const result = await fn(...args);
+        if (report) report(result);
+        else onOutcome();
+        return result;
       } catch (error) {
         if (isAuthFailure(error)) onAuthFailure((error as ProviderError).status ?? 0);
+        onOutcome(describeProviderFailure(error));
         throw error;
       }
     };
   return {
     ...provider,
-    score: wrap(provider.score.bind(provider)),
+    score: wrap(provider.score.bind(provider), (result: ScoreResult) => onOutcome(result.failure)),
     ...(provider.choose ? { choose: wrap(provider.choose.bind(provider)) } : {}),
   };
 }
@@ -126,21 +134,29 @@ export async function runFastContext(options: RunOptions): Promise<SearchResult>
     return fallbackResult(options.query, resolution.error ?? `${selected} is not configured`);
   }
 
-  const runSearch = async (provider: DecisionProvider, onAuthFailure: (status: number) => void) =>
-    searchRepository({
+  const runSearch = async (provider: DecisionProvider, source: "env" | "store" | undefined, onAuthFailure: (status: number) => void) => {
+    let checked = false;
+    let failure: ProviderFailure | undefined;
+    const result = await searchRepository({
       root: options.root,
       query: options.query,
       ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
-      provider: observeAuthFailures(provider, onAuthFailure),
+      provider: observeRequests(provider, onAuthFailure, (error) => {
+        checked = true;
+        failure ??= error;
+      }),
       ...(options.signal ? { signal: options.signal } : {}),
     });
+    if (checked && source && result.status !== "cancelled") options.onProviderOutcome?.(source, failure);
+    return result;
+  };
 
   let authStatus: number | null = null;
   const capture = (status: number) => {
     if (authStatus === null) authStatus = status;
   };
 
-  let result = await runSearch(resolution.provider, capture);
+  let result = await runSearch(resolution.provider, resolution.source, capture);
 
   if (result.status === "fallback_required" && authStatus !== null && resolution.source === "store") {
     try {
@@ -154,7 +170,7 @@ export async function runFastContext(options: RunOptions): Promise<SearchResult>
         const retry = await resolve();
         if (retry.provider) {
           authStatus = null;
-          result = await runSearch(retry.provider, capture);
+          result = await runSearch(retry.provider, retry.source, capture);
           if (result.status === "fallback_required" && authStatus !== null) {
             return { ...result, reason: authFailureReason(retry.source, authStatus, selected) };
           }

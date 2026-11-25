@@ -1,16 +1,16 @@
 # Gemini Decisions TUI recording plan
 
-This plan is for a human-run validation of draft PR #6. Run the key wizard first:
+Run the key wizard from the checkout you want to validate:
 
 ```bash
 ./scripts/gemini-self-test-wizard.sh
 ```
 
-The wizard uses a clean PR checkout and saves the Gemini key only through OpenCode's masked credential prompt. It prints a `run-gemini-opencode.sh` launcher in the test directory; use that launcher for every session. It isolates the global OpenCode plugin configuration, avoiding a duplicate `fast-context` server entry while retaining the normal credential store. Do not record the AI Studio key page, the auth prompt, or any key entry. The recording starts in a **new** OpenCode session after authentication. Use only the public test checkout for the free API tier. A Google AI Pro subscription does not set the API project's billing tier.
+The wizard verifies the checkout against a synthetic project and a disposable OpenCode profile. For a recording, use a separate clean checkout of the open PR and install the plugin at project scope. Launch OpenCode with one `fast-context` plugin entry and use its masked prompt to authenticate before recording. Do not record the AI Studio key page, the auth prompt, or any key entry. Start recording in a new OpenCode session after authentication. Use only public source for the free API tier. A Google AI Pro subscription does not set the API project's billing tier.
 
 ## Prerequisites
 
-- OpenCode 2, `rg`, Node and npm; a verified clean PR checkout from the wizard.
+- OpenCode 2, `rg`, Node, npm, and a verified clean PR checkout.
 - `asciinema` for local terminal output capture and `agg` for GIF conversion. Install these separately before the recording run; neither is added to this package.
 - GitHub CLI 2.100 or newer, authenticated with permission to comment on the PR. `gh pr comment --attach` uploads the GIF as a GitHub attachment.
 - Confirm that `GEMINI_API_KEY` is absent from the OpenCode server environment if testing the stored-key flow. Check presence only; do not print the value.
@@ -30,12 +30,11 @@ The existing automated tests cover malformed responses, 401/403 cleanup, cancell
 
 ## Capture and review
 
-After auth is complete and OpenCode is closed, set `TEST_LAUNCHER` to the absolute launcher path printed by the wizard:
+After auth is complete and OpenCode is closed, use the same project directory and OpenCode profile as the auth session:
 
 ```bash
 CAPTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fast-context-tui.XXXXXX")"
-TEST_LAUNCHER="/path/printed/by/wizard/run-gemini-opencode.sh"
-asciinema rec -c "$TEST_LAUNCHER" "$CAPTURE_DIR/take-01.cast"
+asciinema rec -c 'opencode --standalone' "$CAPTURE_DIR/take-01.cast"
 asciinema play "$CAPTURE_DIR/take-01.cast"
 agg "$CAPTURE_DIR/take-01.cast" "$CAPTURE_DIR/take-01.gif"
 ```
@@ -46,8 +45,8 @@ Do not enable `--capture-input` or `--stdin`. Inspect the cast and GIF frame by 
 
 For each approved GIF, the upload helper should:
 
-1. Require an authenticated `gh` session and an explicit PR number (default `6`). Check the PR's head SHA against the recorded SHA, so a stale take is labelled accurately.
-2. Post the report with `gh pr comment 6 --repo enkay01/opencode-fast-context --body-file <report> --attach <gif>#<alt-text>`. Include the scenario table, observed statuses, and limitations. Do not upload the raw cast; it can contain terminal control output and is harder to audit.
+1. Require an authenticated `gh` session and an explicit open PR number. Check the PR's head SHA against the recorded SHA, so a stale take is labelled accurately.
+2. Post the report with `gh pr comment <number> --repo enkay01/opencode-fast-context --body-file <report> --attach <gif>#<alt-text>`. Include the scenario table, observed statuses, and limitations. Do not upload the raw cast; it can contain terminal control output and is harder to audit.
 3. Fetch the returned comment from GitHub and verify that its body contains the hosted GIF attachment and the expected take label. Open the PR comment to confirm the animation renders.
 4. **Only after that verification succeeds**, remove the local `.cast`, `.gif`, and temporary report. If upload or verification fails, preserve the files and print their location for retry. Never delete the test checkout or the OpenCode credential automatically.
 

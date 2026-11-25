@@ -1,6 +1,7 @@
 """Drive a real OpenCode TUI in a disposable profile and capture terminal frames."""
 import argparse
 import codecs
+from contextlib import contextmanager
 import errno
 import fcntl
 import html
@@ -15,10 +16,12 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import threading
 import time
+import tty
 
 ROOT = Path(__file__).resolve().parents[2]
 ROWS, COLS = 38, 152
@@ -145,8 +148,9 @@ class Screen:
 
 
 class Tui:
-    def __init__(self, project, env):
+    def __init__(self, project, env, mirror=False):
         self.screen = Screen()
+        self.mirror = mirror
         self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
@@ -185,14 +189,21 @@ class Tui:
                 data = b""
             if not data:
                 raise RuntimeError("OpenCode exited before validation completed")
+            if self.mirror:
+                sys.stdout.buffer.write(data)
+                sys.stdout.buffer.flush()
             self.screen.feed(self.decoder.decode(data))
 
     def wait(self, expected, seconds=20):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             self.read()
-            if expected.lower() in self.screen.text().lower():
-                return
+            frame = self.screen.text()
+            if isinstance(expected, str):
+                if expected.lower() in frame.lower():
+                    return
+            elif match := expected.search(frame):
+                return match
         raise RuntimeError(f"OpenCode did not display {expected!r}")
 
     def connected(self, provider):
@@ -214,6 +225,57 @@ class Tui:
         for _ in range(4):
             self.read()
         self.send("\r")
+
+    def cancel_prompt(self, title):
+        self.send("\x03")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            self.read()
+            if title.lower() not in self.screen.text().lower():
+                return
+        raise RuntimeError("The OpenCode credential prompt did not close on cancel")
+
+    def enter_manual_key(self):
+        self.enter("/fast-context auth gemini")
+        title = "Store a Fast Context credential"
+        self.wait(title)
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            self.read(0.05)
+            frame = self.screen.text()
+            if "gemini · connected" in frame or "gemini connected and selected." in frame.lower():
+                return
+            if title not in frame and "key saved." in frame.lower():
+                raise RuntimeError("The key was saved. Check /fast-context auth status and select Gemini again.")
+            if select.select([sys.stdin], [], [], 0)[0]:
+                data = os.read(sys.stdin.fileno(), 65_536)
+                if not data or b"\x03" in data:
+                    raise RuntimeError("Gemini setup cancelled")
+                os.write(self.fd, data)
+        raise RuntimeError("Gemini did not connect. Check the masked prompt for validation errors and retry.")
+
+    def provider_status(self, provider, connection):
+        self.enter("/fast-context auth status")
+        self.wait(f"Selected: {provider}")
+        self.wait(f"Connection: {connection}")
+        match = self.wait(re.compile(r"Server instance: ([a-f0-9-]{36})"))
+        self.send("\r")
+        for _ in range(4):
+            self.read()
+        return match[1]
+
+
+@contextmanager
+def terminal_input():
+    fd = sys.stdin.fileno()
+    settings = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    try:
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, settings)
+        sys.stdout.write("\x1b[?1049l\x1b[?25h\x1b[?2004l")
+        sys.stdout.flush()
 
 
 class Model(http.server.BaseHTTPRequestHandler):
@@ -275,7 +337,7 @@ def build_plugin(profile):
     return bundle
 
 
-def mock_plugin(profile, bundle):
+def instrument_plugin(profile, bundle, mock_transport):
     # The production TUI and server entry points still run in the real host.
     # Only provider HTTP responses are replaced, inside this temporary package.
     package = profile / "mock-plugin"
@@ -285,12 +347,19 @@ def mock_plugin(profile, bundle):
         "exports": {".": "./server.js", "./tui": "./tui.js"},
     }))
     (package / "tui.js").write_text(f'export {{ default }} from {json.dumps(str(bundle / "dist/tui.js"))};\n')
-    (package / "server.js").write_text(f'import plugin from {json.dumps(str(bundle / "dist/index.js"))};\n' + """
+    (package / "server.js").write_text(f'import plugin from {json.dumps(str(bundle / "dist/index.js"))};\n'
+                                       f'const profile = {json.dumps(str(profile))};\n'
+                                       f'const mock = {json.dumps(mock_transport)};\n' + """
+import { appendFileSync, readFileSync } from "node:fs";
+function scenario() {
+  try { return readFileSync(`${profile}/scenario`, "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return ""; throw error; }
+}
 export default {
   ...plugin,
   async setup(context) {
     const original = globalThis.fetch;
-    globalThis.fetch = async (input, init) => {
+    if (mock) globalThis.fetch = async (input, init) => {
       const url = String(input);
       const gemini = url === "https://generativelanguage.googleapis.com/v1beta/decisions";
       const jev = url === "https://api.typesafe.ai/v1/models" || url === "https://api.typesafe.ai/v1/systemone";
@@ -302,12 +371,46 @@ export default {
       }
       if (url.endsWith("/models")) return Response.json({});
       const { questions } = JSON.parse(init.body);
+      if (gemini && questions.relevant) {
+        const failure = scenario();
+        if (failure === "timeout") throw new DOMException("private-fixture-response", "TimeoutError");
+        if (["401", "403", "429"].includes(failure)) return new Response("private-fixture-response", { status: Number(failure) });
+      }
       return Response.json({
         model: gemini ? "gemini-decision-1" : "validation-jev",
         answers: Object.fromEntries(Object.keys(questions).map((name) => [name, { type: "noul", noul: 0.99 }])),
       });
     };
-    const dispose = await plugin.setup(context);
+    const dispose = await plugin.setup({
+      ...context,
+      storage: {
+        ...context.storage,
+        async get(key) {
+          if (scenario() === "storage-read") throw new Error("private-fixture-response");
+          return context.storage.get(key);
+        },
+        async set(key, value) {
+          if (scenario() === "storage-write") throw new Error("private-fixture-response");
+          return context.storage.set(key, value);
+        },
+      },
+      tool: {
+        ...context.tool,
+        transform: (edit) => context.tool.transform((editor) => edit({
+          ...editor,
+          add: (tool) => editor.add({
+            ...tool,
+            async execute(...args) {
+              const result = await tool.execute(...args);
+              const instance = result.metadata.fast_context_instance;
+              const provider = result.metadata.fast_context.provider.id;
+              appendFileSync(`${profile}/tool-instances.jsonl`, JSON.stringify({ instance, provider }) + "\\n");
+              return result;
+            },
+          }),
+        })),
+      },
+    });
     return async () => {
       globalThis.fetch = original;
       await dispose?.();
@@ -333,7 +436,7 @@ def run(mode, profile, output):
 
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Model) as server:
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        plugin = bundle if mode == "live" else mock_plugin(profile, bundle)
+        plugin = bundle if mode == "live" else instrument_plugin(profile, bundle, mode != "wizard")
         (config / "opencode.json").write_text(json.dumps({
             "model": "validation/local",
             "plugins": [plugin.as_uri()],
@@ -344,23 +447,95 @@ def run(mode, profile, output):
             }},
         }))
         version = subprocess.check_output(["opencode", "--version"], env=env, text=True).strip()
-        print(f"{version} | {mode} provider transport | isolated profile", flush=True)
+        print(f"{version} | {'live' if mode == 'wizard' else mode} provider transport | isolated profile", flush=True)
 
         def snapshot(tui, name):
             frame = tui.screen.text()
-            if any(value and value in frame for value in (env.get("GEMINI_API_KEY"), env.get("TYPESAFE_API_KEY"))):
-                raise RuntimeError("A credential appeared in the terminal frame")
+            forbidden = (env.get("GEMINI_API_KEY"), env.get("TYPESAFE_API_KEY"), "gemini-test", "jev-test", "private-fixture-response")
+            if any(value and value in frame for value in forbidden):
+                raise RuntimeError("Sensitive data appeared in the terminal frame")
             tui.screen.capture(output / f"{name}.svg")
             print(f"Captured {name}.svg", flush=True)
 
-        def search(tui, provider, index):
+        def search(tui, provider, index, outcome=None, instance=None, prompt=None):
             previous = len(Model.results)
             tui.enter(f"{QUERY} Validation step {index}.")
-            outcome = "fallback_required" if provider == "none" else "complete"
+            if prompt:
+                tui.wait(prompt)
+                tui.cancel_prompt(prompt)
+            outcome = outcome or ("fallback_required" if provider == "none" else "complete")
             fixture_expected = provider != "none"
             tui.wait(f"Step {index} result: {provider} / {outcome} / fixture {'found' if fixture_expected else 'absent'}", 35)
             if Model.results[previous:] != [(provider, outcome, fixture_expected)]:
                 raise RuntimeError(f"Unexpected tool result at step {index}")
+            if instance:
+                check_tool_instance(instance, provider)
+
+        def check_tool_instance(instance, provider):
+            last = json.loads((profile / "tool-instances.jsonl").read_text().splitlines()[-1])
+            if last != {"instance": instance, "provider": provider}:
+                raise RuntimeError("RPC and tool reached different Fast Context instances; check for duplicate plugin entries")
+
+        def enter_key(tui, provider):
+            tui.enter(f"/fast-context auth {provider}")
+            tui.wait("Store a Fast Context credential")
+            tui.enter(f"{provider}-test")
+
+        def negative_paths(tui, first_instance):
+            scenario = profile / "scenario"
+            tui.enter("/fast-context provider jev")
+            tui.wait("Store a Fast Context credential")
+            tui.cancel_prompt("Store a Fast Context credential")
+            tui.wait("gemini · connected")
+            if tui.provider_status("gemini", "connected") != first_instance:
+                raise RuntimeError("Unexpected server change after cancellation")
+            search(tui, "gemini", "cancel", instance=first_instance)
+
+            scenario.write_text("storage-write")
+            enter_key(tui, "jev")
+            tui.wait("Key saved.")
+            tui.provider_status("gemini", "connected")
+            scenario.unlink()
+
+            scenario.write_text("storage-read")
+            tui.wait("status unavailable", 12)
+            search(tui, "none", "storage_read")
+            scenario.unlink()
+            tui.wait("gemini · connected", 12)
+
+        def provider_failures(tui):
+            scenario = profile / "scenario"
+            for failure in ("429", "timeout", "401", "403"):
+                scenario.write_text(failure)
+                expired = failure in ("401", "403")
+                search(tui, "gemini", f"error_{failure}", "fallback_required",
+                       prompt="credential expired" if expired else None)
+                tui.wait(f"error ({failure})")
+                tui.provider_status("gemini", f"error ({failure})")
+                scenario.unlink()
+                if expired:
+                    enter_key(tui, "gemini")
+                    tui.connected("gemini")
+            tui.enter("/fast-context auth revoke")
+            tui.wait("Revoke Fast Context credential?")
+            tui.send("\r")
+            tui.wait("gemini · no key")
+            tui.provider_status("gemini", "no key")
+            search(tui, "none", "revoked", prompt="Connect Fast Context to Google")
+            enter_key(tui, "gemini")
+            tui.connected("gemini")
+
+        if mode == "wizard":
+            print("Paste your Gemini key only when its OpenCode prompt appears. Ctrl+C cancels.", flush=True)
+            with terminal_input(), Tui(project, env, mirror=True) as tui:
+                tui.wait("Fixture Validation")
+                search(tui, "none", "before_auth")
+                tui.enter_manual_key()
+                instance = tui.provider_status("gemini", "connected")
+                search(tui, "gemini", "after_auth", instance=instance)
+                snapshot(tui, "gemini-verified")
+            print("Gemini status and fast_context_search agreed on the provider and server instance.", flush=True)
+            return
 
         with Tui(project, env) as tui:
             try:
@@ -372,10 +547,10 @@ def run(mode, profile, output):
                     ("03", "jev", "jev-test"),
                     ("04", "gemini", None),
                 ]:
-                    if mode == "mock" and key:
-                        tui.enter(f"/fast-context auth {provider}")
-                        tui.wait("Store a Fast Context credential")
-                        tui.enter(key)
+                    if mode == "mock" and number == "03":
+                        tui.enter("/fast-context provider jev")
+                    elif mode == "mock" and key:
+                        enter_key(tui, provider)
                     elif provider == "gemini" and number == "04":
                         tui.enter("/fast-context provider")
                         tui.wait("Select Fast Context provider")
@@ -384,28 +559,36 @@ def run(mode, profile, output):
                     else:
                         tui.enter(f"/fast-context provider {provider}")
                     tui.connected(provider)
-                    search(tui, provider, number)
+                    instance = tui.provider_status(provider, "connected")
+                    search(tui, provider, number, instance=instance if mode != "live" else None)
                     snapshot(tui, f"{number}-{provider}")
+                    if mode == "mock" and number == "02":
+                        negative_paths(tui, instance)
+                if mode == "mock":
+                    with Tui(project, env) as second:
+                        second.wait("Fixture Validation")
+                        search(second, "gemini", "second")
+                        second_instance = second.provider_status("gemini", "connected")
+                        if second_instance == instance:
+                            raise RuntimeError("Second TUI did not start another server instance")
+                        check_tool_instance(second_instance, "gemini")
+                    provider_failures(tui)
             except Exception:
                 snapshot(tui, "failure")
                 print(f"Observed tool results: {Model.results}; model tool calls: {Model.calls}", flush=True)
-                if mode != "live":
-                    print(tui.screen.text(), flush=True)
                 raise
         with Tui(project, env) as tui:
             try:
                 tui.wait("Fixture Validation")
                 search(tui, "gemini", 5)
+                restarted = tui.provider_status("gemini", "connected")
+                if mode != "live":
+                    check_tool_instance(restarted, "gemini")
                 snapshot(tui, "05-restart")
             except Exception:
                 snapshot(tui, "restart-failure")
-                if mode != "live":
-                    print(f"Observed tool results: {Model.results}\n{tui.screen.text()}", flush=True)
                 raise
         server.shutdown()
-    if Model.results != [("none", "fallback_required", False), ("gemini", "complete", True),
-                         ("jev", "complete", True), ("gemini", "complete", True), ("gemini", "complete", True)]:
-        raise RuntimeError("Unexpected TUI tool result sequence")
     print(f"PASS | screenshots: {output}")
 
 
@@ -430,9 +613,16 @@ if __name__ == "__main__":
     modes.add_argument("--live", dest="mode", action="store_const", const="live")
     modes.add_argument("--mock", dest="mode", action="store_const", const="mock")
     modes.add_argument("--mock-env", dest="mode", action="store_const", const="mock-env")
+    modes.add_argument("--wizard", dest="mode", action="store_const", const="wizard")
     args = parser.parse_args()
-    if args.mode != "mock" and any(not os.environ.get(name) for name in ("TYPESAFE_API_KEY", "GEMINI_API_KEY")):
+    if args.mode in ("mock-env", "live") and any(not os.environ.get(name) for name in ("TYPESAFE_API_KEY", "GEMINI_API_KEY")):
         parser.error("Load both credentials with bash scripts/validate-tui.sh")
+    if args.mode == "wizard":
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            parser.error("The self-test wizard requires an interactive terminal")
+        for name in ("GEMINI_API_KEY", "TYPESAFE_API_KEY"):
+            os.environ.pop(name, None)
+        COLS, ROWS = os.get_terminal_size(sys.stdout.fileno())
     base = ROOT / ".validation-output"
     base.mkdir(mode=0o700, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix=f"{args.mode}-", dir=base))

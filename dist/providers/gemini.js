@@ -1,4 +1,4 @@
-import { ProviderError, RELEVANCE_CRITERIA, RELEVANCE_INSTRUCTIONS, buildState, mapWithConcurrency, } from "./types.js";
+import { ProviderError, RELEVANCE_CRITERIA, RELEVANCE_INSTRUCTIONS, buildState, describeProviderFailure, mapWithConcurrency, } from "./types.js";
 export const GEMINI_DECISION_MODEL = "gemini-decision-1";
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/decisions";
 function tokenUsage(value) {
@@ -18,6 +18,10 @@ function object(value) {
     return value;
 }
 export function createGeminiProvider(config) {
+    const minDecision = config.minDecision ?? null;
+    if (minDecision !== null && (!Number.isFinite(minDecision) || minDecision < 0 || minDecision > 1)) {
+        throw new RangeError("Gemini relevance threshold must be between 0 and 1");
+    }
     const transport = config.fetchImpl ?? fetch;
     const endpoint = config.endpoint ?? ENDPOINT;
     async function request(input, questions, deadline, signal) {
@@ -56,7 +60,7 @@ export function createGeminiProvider(config) {
     return {
         id: "gemini",
         model: GEMINI_DECISION_MODEL,
-        minDecision: null,
+        minDecision,
         async score(query, candidates, options) {
             if (config.layout === "multi-question") {
                 if (candidates.length === 0)
@@ -88,7 +92,7 @@ export function createGeminiProvider(config) {
                 }
                 if (skipped === candidates.length)
                     throw new ProviderError("gemini", "invalid relevance scores");
-                return { scores, skipped, usage: result.usage, model: GEMINI_DECISION_MODEL };
+                return { scores, skipped, usage: result.usage, model: GEMINI_DECISION_MODEL, ...(skipped ? { failure: "provider unavailable" } : {}) };
             }
             const scores = {};
             let usage = null;
@@ -134,7 +138,7 @@ export function createGeminiProvider(config) {
             if (skipped > 0 && Object.keys(scores).length === 0) {
                 throw firstError ?? new ProviderError("gemini", "no candidates scored before deadline");
             }
-            return { scores, usage, model: GEMINI_DECISION_MODEL, skipped };
+            return { scores, usage, model: GEMINI_DECISION_MODEL, skipped, ...(skipped ? { failure: firstError ? describeProviderFailure(firstError) : "timeout" } : {}) };
         },
         async choose(query, options, opts) {
             if (options.length < 2 || options.length > 255) {

@@ -29,6 +29,9 @@ jobs:
       - name: Setup smoke with prerequisite checks
         run: npm run smoke:setup
       - run: npm run verify:release
+      - name: Verify Gemini onboarding in OpenCode TUI
+        if: matrix.node == 24
+        run: bash scripts/validate-tui.sh --mock
 
   windows-verification:
     runs-on: windows-latest

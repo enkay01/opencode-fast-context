@@ -6,31 +6,60 @@ import { readPublicConfig } from "./config.js";
 import { FAST_CONTEXT_INTEGRATION_ID, GEMINI_INTEGRATION_ID, hasStoredCredential, registerFastContextIntegration, resolveStoredApiKey, storeApiKey, verifyApiKey, verifyGeminiApiKey, verificationErrorMessage, } from "./credentials.js";
 import { applyAutoInvokeGuidance } from "./guidance.js";
 import { TOOL_DESCRIPTION, TOOL_INPUT_SCHEMA, formatForModel, runFastContext, } from "./tool.js";
-function providerFailure(result, provider) {
-    if (result.status !== "fallback_required" || result.provider.id !== provider)
-        return undefined;
-    const reason = result.reason ?? "";
-    const providerRequestFailed = reason.startsWith(`decision provider ${provider} failed:`);
-    const credentialRejected = /HTTP (401|403)\b/.test(reason);
-    const quotaExceeded = /HTTP 429\b/.test(reason);
-    if (!providerRequestFailed && !credentialRejected && !quotaExceeded)
-        return undefined;
-    if (credentialRejected)
-        return "credential rejected";
-    if (quotaExceeded)
-        return "quota";
-    return "provider unavailable";
-}
+const SELECTION_STORAGE_ERROR = "Provider selection storage is unavailable. Check /fast-context auth status and retry.";
+const SELECTION_KEY = "selectedProvider";
 /** OpenCode 2 plugin entry point. */
 export default Plugin.define({
     id: "fast-context",
     async setup(ctx) {
         const config = readPublicConfig(ctx.options);
         const instanceID = randomUUID();
-        const observations = { jev: undefined, gemini: undefined };
-        const selection = async () => {
-            const stored = await ctx.storage.get("selectedProvider");
-            return stored === "jev" || stored === "gemini" ? stored : config.decisionProvider ?? null;
+        const observations = {};
+        const record = (provider, source, failure) => {
+            const checkedAt = Date.now();
+            const previous = observations[provider];
+            const verifiedAt = failure ? (previous?.source === source ? previous.verifiedAt : undefined) : checkedAt;
+            observations[provider] = { source, checkedAt, ...(verifiedAt === undefined ? {} : { verifiedAt }), ...(failure ? { failure } : {}) };
+        };
+        const storedSelection = async () => {
+            if (config.providerError)
+                throw new Error(config.providerError);
+            try {
+                const stored = await ctx.storage.get(SELECTION_KEY);
+                if (stored === undefined || stored === "jev" || stored === "gemini")
+                    return stored;
+            }
+            catch {
+                throw new Error(SELECTION_STORAGE_ERROR);
+            }
+            throw new Error("Stored provider selection is invalid. Check OpenCode plugin storage.");
+        };
+        const selection = async () => (await storedSelection()) ?? config.decisionProvider ?? null;
+        const persistSelection = async (provider) => {
+            const previous = await storedSelection();
+            let wrote = false;
+            try {
+                await ctx.storage.set(SELECTION_KEY, provider);
+                wrote = true;
+                if (await storedSelection() === provider)
+                    return;
+            }
+            catch {
+                // A write may have been applied even if its acknowledgement failed.
+                const current = await storedSelection().catch(() => wrote ? provider : undefined);
+                if (current === provider && previous !== provider) {
+                    try {
+                        if (previous === undefined)
+                            await ctx.storage.remove(SELECTION_KEY);
+                        else
+                            await ctx.storage.set(SELECTION_KEY, previous);
+                    }
+                    catch {
+                        throw new Error("Could not restore the previous provider. Check /fast-context auth status before searching.");
+                    }
+                }
+            }
+            throw new Error("Provider selection did not persist. Check OpenCode plugin storage and retry.");
         };
         const root = ctx.location.project?.directory || ctx.location.directory;
         const integration = ctx.integration;
@@ -76,31 +105,47 @@ export default Plugin.define({
                 return { ok: true };
             },
             status: async () => {
-                const selected = await selection();
+                const provider = await selection();
                 const jev = { env: Boolean(process.env.TYPESAFE_API_KEY), stored: await hasStoredCredential(integration, FAST_CONTEXT_INTEGRATION_ID) };
                 const gemini = { env: Boolean(process.env.GEMINI_API_KEY), stored: await hasStoredCredential(integration, GEMINI_INTEGRATION_ID) };
-                const available = selected && (selected === "jev" ? jev : gemini);
-                const observation = selected && available && (available.env || available.stored) ? observations[selected] : undefined;
-                return { provider: selected, env: selected ? (selected === "jev" ? jev : gemini).env : false,
-                    stored: selected ? (selected === "jev" ? jev : gemini).stored : false, jev, gemini, instanceID,
-                    connection: !selected ? "unselected" : !available || (!available.env && !available.stored) ? "missing" : observation?.connection ?? "unverified",
-                    ...(observation ? { checkedAt: observation.checkedAt, ...(observation.failure ? { failure: observation.failure } : {}) } : {}) };
+                const { env, stored } = provider ? { jev, gemini }[provider] : { env: false, stored: false };
+                const source = env ? "env" : stored ? "store" : null;
+                const recent = provider ? observations[provider] : undefined;
+                const rejected = !source && (recent?.failure === "401" || recent?.failure === "403");
+                const current = recent?.source === source || rejected ? recent : undefined;
+                const connection = current?.failure ? "error" : !provider ? "unselected" : !source ? "missing" : current ? "connected" : "unverified";
+                return {
+                    provider, env, stored, source, jev, gemini, instanceID, connection,
+                    ...(current ? { checkedAt: current.checkedAt } : {}),
+                    ...(current?.verifiedAt === undefined ? {} : { verifiedAt: current.verifiedAt }),
+                    ...(current?.failure ? { failure: current.failure } : {}),
+                };
             },
             selectProvider: async (input) => {
                 const { provider } = input;
                 const key = provider === "gemini" ? process.env.GEMINI_API_KEY : process.env.TYPESAFE_API_KEY;
-                const candidate = key || await resolveStoredApiKey(integration, integrationID(provider));
+                let candidate;
+                try {
+                    await storedSelection();
+                    candidate = key || await resolveStoredApiKey(integration, integrationID(provider));
+                }
+                catch {
+                    return { provider, ok: false, error: "Could not read OpenCode provider or credential storage." };
+                }
                 if (!candidate)
                     return { provider, ok: false, error: `No ${provider} key is configured.` };
                 const verified = provider === "gemini" ? await verifyGeminiApiKey(candidate) : await verifyApiKey(candidate);
                 if (verified !== "valid")
                     return { provider, ok: false, error: verified === "invalid" ? `${provider} rejected the key.` : `Could not verify ${provider} access.` };
-                await ctx.storage.set("selectedProvider", provider);
-                if (await selection() !== provider)
-                    return { provider, ok: false, error: "Provider selection did not persist." };
-                observations[provider] = { connection: "connected", checkedAt: Date.now() };
+                try {
+                    await persistSelection(provider);
+                }
+                catch (error) {
+                    return { provider, ok: false, error: error.message };
+                }
+                record(provider, key ? "env" : "store");
                 await rpcRegistration.events.emit("state", {}).catch(() => { });
-                return { provider, ok: true };
+                return { provider, ok: true, instanceID };
             },
             submitKey: async (input) => {
                 const { requestId, key, provider: requested } = input;
@@ -120,10 +165,19 @@ export default Plugin.define({
                     return { ok: false, error: "OpenCode could not store the credential. Try again." };
                 }
                 auth[provider].clearRejected();
-                observations[provider] = { connection: "connected", checkedAt: Date.now() };
+                const envKey = provider === "gemini" ? process.env.GEMINI_API_KEY : process.env.TYPESAFE_API_KEY;
+                if (!envKey)
+                    record(provider, "store");
                 await rpcRegistration.events.emit("state", {}).catch(() => { });
                 if (requestId)
                     auth[provider].settle(requestId, "saved");
+                return { ok: true };
+            },
+            credentialRevoked: async (input) => {
+                const { provider } = input;
+                if (observations[provider]?.source === "store")
+                    delete observations[provider];
+                await rpcRegistration.events.emit("state", {}).catch(() => { });
                 return { ok: true };
             },
             cancel: async (input) => {
@@ -146,37 +200,34 @@ export default Plugin.define({
                 execute: async (rawInput, toolContext) => {
                     const input = rawInput;
                     let choice;
-                    let selectionError = false;
+                    let selectionError;
                     try {
                         choice = await selection();
                     }
-                    catch {
+                    catch (error) {
                         choice = null;
-                        selectionError = true;
+                        selectionError = error.message;
                     }
+                    let providerChecked = false;
                     const result = choice ? await runFastContext({
                         root,
                         query: input.query,
                         config: { ...config, decisionProvider: choice },
                         credentials: auth[choice].broker,
+                        onProviderOutcome: (source, failure) => {
+                            if (!choice)
+                                return;
+                            providerChecked = true;
+                            record(choice, source, failure);
+                        },
                         sessionID: toolContext.sessionID,
                         ...(input.maxFiles ? { maxFiles: input.maxFiles } : {}),
                         ...(toolContext.signal ? { signal: toolContext.signal } : {}),
                     }) : await runFastContext({ root, query: input.query,
                         config: { ...config, providerError: selectionError
-                                ? "Provider selection storage is unavailable. Check /fast-context auth status and retry."
-                                : "Select Jev or Gemini with /fast-context provider before searching." } });
-                    if (choice) {
-                        const failure = providerFailure(result, choice);
-                        if (failure) {
-                            observations[choice] = { connection: "error", checkedAt: Date.now(), failure };
-                            await rpcRegistration.events.emit("state", {}).catch(() => { });
-                        }
-                        else if (result.status !== "fallback_required" && result.provider.id === choice && result.provider.model !== null) {
-                            observations[choice] = { connection: "connected", checkedAt: Date.now() };
-                            await rpcRegistration.events.emit("state", {}).catch(() => { });
-                        }
-                    }
+                                ?? "Select Jev or Gemini with /fast-context provider before searching." } });
+                    if (providerChecked)
+                        await rpcRegistration.events.emit("state", {}).catch(() => { });
                     return {
                         content: formatForModel(result),
                         metadata: { fast_context: result, fast_context_instance: instanceID },

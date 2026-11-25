@@ -5,6 +5,7 @@ import {
   RELEVANCE_INSTRUCTIONS,
   RELEVANCE_INSTRUCTIONS_LEGACY,
   buildState,
+  describeProviderFailure,
   mapWithConcurrency,
   type ChooseOption,
   type ChooseResult,
@@ -248,6 +249,7 @@ async function scoreCandidates(
     usage: usageSeen ? usage : null,
     model: actualModel,
     skipped: skipped + failures,
+    ...(firstError ? { failure: describeProviderFailure(firstError) } : {}),
   };
 }
 

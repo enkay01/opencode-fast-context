@@ -1,4 +1,5 @@
 import { type FastContextConfig, type ProviderOverrides } from "./config.ts";
+import { type ProviderFailure } from "./providers/types.ts";
 import type { SearchResult } from "./types.ts";
 export type AuthRequestReason = "missing" | "expired";
 export type AuthRequestOutcome = "saved" | "cancelled" | "unavailable";
@@ -33,6 +34,7 @@ export interface RunOptions {
     sessionID?: string;
     /** Credential store and interactive prompt bridge; absent means env-only. */
     credentials?: CredentialBroker;
+    onProviderOutcome?: (source: "env" | "store", failure?: ProviderFailure) => void;
 }
 export declare function runFastContext(options: RunOptions): Promise<SearchResult>;
 export declare function readAutoInvoke(config: FastContextConfig | undefined): "suggest" | "off";

@@ -1,4 +1,4 @@
-import { ProviderError, RELEVANCE_CRITERIA, RELEVANCE_CRITERIA_LEGACY, RELEVANCE_INSTRUCTIONS, RELEVANCE_INSTRUCTIONS_LEGACY, buildState, mapWithConcurrency, } from "./types.js";
+import { ProviderError, RELEVANCE_CRITERIA, RELEVANCE_CRITERIA_LEGACY, RELEVANCE_INSTRUCTIONS, RELEVANCE_INSTRUCTIONS_LEGACY, buildState, describeProviderFailure, mapWithConcurrency, } from "./types.js";
 async function callSystemOne(providerId, url, headers, model, query, candidate, timeoutMs, signal, fetchImpl = fetch, prompt = {
     instructions: RELEVANCE_INSTRUCTIONS,
     criteria: RELEVANCE_CRITERIA,
@@ -162,6 +162,7 @@ async function scoreCandidates(providerId, prompt, model, endpoint, headers, que
         usage: usageSeen ? usage : null,
         model: actualModel,
         skipped: skipped + failures,
+        ...(firstError ? { failure: describeProviderFailure(firstError) } : {}),
     };
 }
 export function createJevProvider(config) {

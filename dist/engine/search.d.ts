@@ -1,6 +1,6 @@
 import { type Limits, type SearchResult } from "../types.ts";
 import { discover } from "./discover.ts";
-import type { DecisionProvider } from "../providers/types.ts";
+import { type DecisionProvider } from "../providers/types.ts";
 export interface SearchOptions {
     root: string;
     query: string;

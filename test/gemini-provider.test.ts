@@ -132,7 +132,8 @@ test("multi-question layout maps scores by candidate position in one request", a
     assert.deepEqual(Object.keys(body.questions), ["candidate_0", "candidate_1"]);
     assert.match(body.input, /retryDelay/);
     return response({ answers: {
-      candidate_0: { type: "noul", noul: 0.7 }, candidate_1: { type: "noul", noul: 0.2 },
+      candidate_1: { type: "noul", noul: 0.2 }, candidate_unused: { type: "noul", noul: 1 },
+      candidate_0: { type: "noul", noul: 0.7 },
     }, usage: { total_input_tokens: 100, total_output_tokens: 0 } });
   }) as typeof fetch });
   const result = await provider.score("retry", [candidate, { ...candidate, id: "c2" }], { deadline: deadline(), concurrency: 8 });

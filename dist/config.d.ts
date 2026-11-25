@@ -23,6 +23,7 @@ export interface ProviderResolution {
 export interface ProviderOverrides {
     fetchImpl?: typeof fetch;
     endpoint?: string;
+    geminiMinDecision?: number;
 }
 export declare function readPublicConfig(options: Record<string, unknown> | undefined): FastContextConfig;
 export declare function resolveProvider(env?: NodeJS.ProcessEnv, overrides?: ProviderOverrides, kind?: ProviderKind): ProviderResolution;

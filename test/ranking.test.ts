@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { searchRepository } from "../src/engine/search.ts";
 import { formatForModel } from "../src/tool.ts";
-import type { DecisionProvider } from "../src/providers/types.ts";
+import { ProviderError, type DecisionProvider } from "../src/providers/types.ts";
 import type { DiscoveryResult } from "../src/engine/discover.ts";
 import { makeFixture } from "./fixture.ts";
 
@@ -49,7 +49,7 @@ test("provider failure returns fallback_required with lexical evidence and a rea
       id: "clef",
       model: "stub",
       async score() {
-        throw new Error("HTTP 503: unavailable");
+        throw new ProviderError("clef", "HTTP 503", 503);
       },
     };
     const result = await searchRepository({

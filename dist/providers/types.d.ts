@@ -13,6 +13,8 @@ export interface ScoreResult {
     model: string;
     /** Candidates that could not be scored before the deadline. */
     skipped: number;
+    /** First failed request when other candidates could still be scored. */
+    failure?: ProviderFailure;
 }
 export interface ScoreOptions {
     signal?: AbortSignal;
@@ -53,6 +55,8 @@ export declare class ProviderError extends Error {
     readonly status: number | null;
     constructor(providerId: string, message: string, status?: number | null);
 }
+export type ProviderFailure = "401" | "403" | "429" | "timeout" | "provider unavailable";
+export declare function describeProviderFailure(error: unknown): ProviderFailure;
 export declare const RELEVANCE_INSTRUCTIONS: string;
 export declare const RELEVANCE_CRITERIA: {
     true: string;

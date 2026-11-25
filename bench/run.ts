@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { exec } from "../src/engine/files.ts";
@@ -6,13 +6,13 @@ import { searchRepository } from "../src/engine/search.ts";
 import { resolveProvider } from "../src/config.ts";
 import { createClefProvider } from "../src/providers/systemone.ts";
 import { createGeminiProvider } from "../src/providers/gemini.ts";
-import type { AblationStage, SearchResult } from "../src/types.ts";
+import { DEFAULT_LIMITS, type AblationStage, type Limits, type SearchResult } from "../src/types.ts";
+import { RELEVANCE_CRITERIA, RELEVANCE_INSTRUCTIONS, type DecisionProvider } from "../src/providers/types.ts";
 
-const STAGES: AblationStage[] = ["v0", "climb1", "climb2", "climb3"];
 import { loadCorpus, repoRoot, validateCorpus, type Corpus, type Task } from "./corpus.ts";
 import { toResult } from "./b0-parse.ts";
 import { scoreRun, type Metrics } from "./metrics.ts";
-import { buildReport } from "./report.ts";
+import { buildPairedReport, buildReport } from "./report.ts";
 import {
   MANIFEST_PATH,
   corpusVersion,
@@ -22,9 +22,20 @@ import {
   validateRunRecords,
 } from "./experiment.ts";
 
+const STAGES: AblationStage[] = ["v0", "climb1", "climb2", "climb3"];
+
 interface Arm {
   id: "none" | "jev" | "clef" | "gemini";
   label: string;
+}
+
+type GeminiLayout = "per-candidate" | "multi-question";
+
+interface Variant {
+  arm: Arm;
+  id: string;
+  layout: GeminiLayout;
+  provider: DecisionProvider | null;
 }
 
 const ARMS: Record<string, Arm> = {
@@ -34,7 +45,7 @@ const ARMS: Record<string, Arm> = {
   gemini: { id: "gemini", label: "Gemini Decisions ranking" },
 };
 
-interface Record {
+interface BenchmarkRecord {
   runId: string;
   taskId: string;
   variantId: string;
@@ -50,12 +61,40 @@ interface Record {
   protocolHash: string;
   corpusVersion: string;
   implementationCommit: string;
-  limits: { rankedCandidates: number; candidatePool: number; deadlineMs: number };
+  limits: Limits;
   metrics: Metrics;
-  result: SearchResult;
+  result: Omit<SearchResult, "results"> & { results: Array<Omit<SearchResult["results"][number], "excerpt">> };
   fallback: { elapsedMs: number; status: string; resultFiles: number } | null;
   providerRequests: Array<{ elapsedMs: number; status: number | null }>;
   estimatedPaidUsd: number | null;
+  repository: { url: string; commit: string };
+  promptHash: string | null;
+}
+
+function configureVariant(arm: Arm, layout: GeminiLayout, id: string): Variant {
+  if (arm.id === "none") return { arm, id, layout, provider: null };
+  let provider: DecisionProvider | null;
+  if (arm.id === "clef") {
+    const { CLOUDFLARE_API_TOKEN: apiToken, CLOUDFLARE_ACCOUNT_ID: accountId } = process.env;
+    if (!apiToken || !accountId) throw new Error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required");
+    provider = createClefProvider({ apiToken, accountId });
+  } else if (arm.id === "gemini" && layout === "multi-question") {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("GEMINI_API_KEY is required");
+    provider = createGeminiProvider({ apiKey, layout });
+  } else {
+    const resolution = resolveProvider(process.env, {}, arm.id);
+    if (!resolution.provider) throw new Error(`arm ${arm.id} is not configured: ${resolution.error}`);
+    provider = resolution.provider;
+  }
+  return { arm, id, layout, provider };
+}
+
+async function sourceHash(root: string): Promise<string> {
+  const paths = (await readdir(join(root, "src"), { recursive: true })).filter((path) => /\.tsx?$/.test(path)).sort();
+  const inputs = await Promise.all([...paths.map((path) => join("src", path)), "bench/run.ts", "bench/report.ts", "package-lock.json"].map(async (path) =>
+    [path, sha256(await readFile(join(root, path), "utf8"))]));
+  return sha256(JSON.stringify(inputs));
 }
 
 async function main(): Promise<void> {
@@ -66,6 +105,8 @@ async function main(): Promise<void> {
   const layout = args.layout ?? "per-candidate";
   if (layout !== "per-candidate" && layout !== "multi-question") throw new Error(`unknown Gemini layout: ${layout}`);
   if (layout !== "per-candidate" && arm.id !== "gemini") throw new Error("multi-question layout requires the Gemini arm");
+  const seed = args.paired === "true" ? "gemini-layout-comparison" : args.paired;
+  if (seed && (args.arm || args.layout || args.variant)) throw new Error("--paired selects Jev and both Gemini layouts");
 
   const corpus = await loadCorpus(root, args.corpus ?? "bench/corpus/tasks.json");
   const errors = await validateCorpus(root, corpus);
@@ -88,102 +129,102 @@ async function main(): Promise<void> {
     }
   }) as typeof fetch;
   try {
-    const resolution = arm.id === "none"
-      ? { provider: null, error: null }
-      : arm.id === "clef"
-        ? process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID
-          ? { provider: createClefProvider({ apiToken: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID }), error: null }
-          : { provider: null, error: "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required" }
-        : arm.id === "gemini" && layout === "multi-question"
-          ? process.env.GEMINI_API_KEY
-            ? { provider: createGeminiProvider({ apiKey: process.env.GEMINI_API_KEY, layout }), error: null }
-            : { provider: null, error: "GEMINI_API_KEY is required" }
-          : resolveProvider(process.env, {}, arm.id);
-    if (arm.id !== "none" && !resolution.provider) throw new Error(`arm ${arm.id} is not configured: ${resolution.error}`);
-
     const stage = (args.stage ?? "climb3") as AblationStage;
     if (!STAGES.includes(stage)) throw new Error(`unknown stage: ${stage}. Use ${STAGES.join(", ")}.`);
     const providerBudget = Number(args["provider-budget"] ?? 24);
+    if (!Number.isSafeInteger(providerBudget) || providerBudget < 1) throw new Error("--provider-budget must be a positive integer");
+    const limits = { ...DEFAULT_LIMITS, ablationStage: stage, rankedCandidates: providerBudget };
     const variantId = args.variant ?? (arm.id === "gemini"
       ? layout === "multi-question" ? "GEMINI-MULTI-QUESTION" : "GEMINI-PER-CANDIDATE"
       : stage);
+    const variants = seed ? [
+      configureVariant(ARMS.jev!, "per-candidate", stage),
+      configureVariant(ARMS.gemini!, "per-candidate", "GEMINI-PER-CANDIDATE"),
+      configureVariant(ARMS.gemini!, "multi-question", "GEMINI-MULTI-QUESTION"),
+    ] : [configureVariant(arm, layout, variantId)];
 
     const experimentManifest = await loadManifest(root);
     const currentProtocolHash = await protocolHash(root);
     const currentCorpusVersion = await corpusVersion(root, args.corpus ?? "bench/corpus/tasks.json");
     const implementationCommit = await gitCommit(root);
+    const implementationSourceHash = await sourceHash(root);
 
-    const repeat = Math.max(1, Number(args.repeat ?? 1));
-    const concurrency = Math.max(1, Number(args.concurrency ?? 1));
-    const records: Record[] = [];
+    const repeat = Number(args.repeat ?? 1);
+    if (!Number.isSafeInteger(repeat) || repeat < 1) throw new Error("--repeat must be a positive integer");
+    const records: BenchmarkRecord[] = [];
+    const fingerprints = new Map(variants.map((variant) => [variant.id, variant.provider ? sha256(JSON.stringify({
+      instructions: RELEVANCE_INSTRUCTIONS, criteria: RELEVANCE_CRITERIA, layout: variant.layout, provider: variant.arm.id, implementationSourceHash,
+    })) : null]));
 
     for (let run = 0; run < repeat; run += 1) {
       for (const task of tasks) {
-        requests = [];
-        const directory = repoRoot(root, corpus, task.repo);
-        const startedAt = new Date().toISOString();
-        const started = performance.now();
-        const result = await searchRepository({
-          root: directory,
-          query: task.question,
-          provider: resolution.provider,
-          limits: { ablationStage: stage, rankedCandidates: providerBudget },
-          includeDiagnostics: true,
-          onStage: () => undefined,
-        });
-        const elapsedMs = Math.round(performance.now() - started);
-        const providerRequests = [...requests];
-        const metrics = scoreRun(task, result, elapsedMs, {
-          failed: result.status === "fallback_required" && result.results.length === 0,
-          invalidCitations: 0,
-        });
-        const fallback = result.status === "fallback_required"
-          ? await measureFallback(task, directory, args)
-          : null;
-        const runId = sha256(
-          [variantId, arm.id, task.id, run, startedAt].join("|"),
-        ).slice(0, 24);
-        records.push({
-          runId,
-          taskId: task.id,
-          variantId,
-          arm: arm.id,
-          armLabel: arm.label,
-          armId: arm.id,
-          diagnostics: result.diagnostics,
-          repeat: run,
-          startedAt,
-          elapsedMs,
-          stage,
-          providerBudget,
-          protocolHash: currentProtocolHash,
-          corpusVersion: currentCorpusVersion,
-          implementationCommit,
-          limits: {
-            rankedCandidates: providerBudget,
-            candidatePool: 400,
-            deadlineMs: 10_000,
-          },
-          metrics,
-          result,
-          fallback,
-          providerRequests,
-          estimatedPaidUsd: arm.id === "gemini" && result.provider.usage
-            ? result.provider.usage.input * 0.10 / 1_000_000
-            : null,
-        });
-        process.stdout.write(
-          `${arm.label} · ${task.id} · ${result.status} · ${elapsedMs}ms · ` +
-            `P@5=${format(metrics.precisionAt5)} R@5=${format(metrics.recallAt5)} ` +
-            `lines=${format(metrics.lineCoverage)}` +
-            (fallback ? ` · fallback ${fallback.elapsedMs}ms (${fallback.status})` : "") +
-            "\n",
-        );
+        const ordering = (variant: Variant) => sha256(JSON.stringify([seed, task.id, run, variant.id]));
+        const block = seed ? variants.toSorted((a, b) => ordering(a).localeCompare(ordering(b))) : variants;
+        for (const variant of block) {
+          const { arm, provider, id: variantId } = variant;
+          requests = [];
+          const directory = repoRoot(root, corpus, task.repo);
+          const startedAt = new Date().toISOString();
+          const started = performance.now();
+          const result = await searchRepository({
+            root: directory,
+            query: task.question,
+            provider,
+            limits,
+            includeDiagnostics: true,
+          });
+          const elapsedMs = Math.round(performance.now() - started);
+          const providerRequests = [...requests];
+          const metrics = scoreRun(task, result, elapsedMs, {
+            failed: result.status === "fallback_required" || result.status === "cancelled",
+            invalidCitations: 0,
+          });
+          const fallback = result.status === "fallback_required" && !args["no-fallback"]
+            ? await measureFallback(task, directory, args)
+            : null;
+          const runId = sha256(
+            [variantId, arm.id, task.id, run, startedAt].join("|"),
+          ).slice(0, 24);
+          records.push({
+            runId,
+            taskId: task.id,
+            variantId,
+            arm: arm.id,
+            armLabel: arm.label,
+            armId: arm.id,
+            diagnostics: result.diagnostics,
+            repeat: run,
+            startedAt,
+            elapsedMs,
+            stage,
+            providerBudget,
+            protocolHash: currentProtocolHash,
+            corpusVersion: currentCorpusVersion,
+            implementationCommit,
+            limits,
+            metrics,
+            result: { ...result, results: result.results.map(({ excerpt: _excerpt, ...evidence }) => evidence) },
+            fallback,
+            providerRequests,
+            estimatedPaidUsd: arm.id === "gemini" && result.provider.usage
+              ? result.provider.usage.input * 0.10 / 1_000_000
+              : null,
+            repository: { url: corpus.repos[task.repo]!.url, commit: corpus.repos[task.repo]!.commit },
+            promptHash: fingerprints.get(variantId) ?? null,
+          });
+          process.stdout.write(
+            `${arm.label} · ${task.id} · ${result.status} · ${elapsedMs}ms · ` +
+              `P@5=${format(metrics.precisionAt5)} R@5=${format(metrics.recallAt5)} ` +
+              `lines=${format(metrics.lineCoverage)}` +
+              (fallback ? ` · fallback ${fallback.elapsedMs}ms (${fallback.status})` : "") +
+              "\n",
+          );
+        }
       }
     }
 
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const outDir = resolve(root, args.out ?? join("bench", "runs", `${stamp}-${arm.id}`));
+    const outDir = resolve(root, args.out ?? join("bench", "runs", `${stamp}-${seed ? "paired" : arm.id}`));
     await mkdir(outDir, { recursive: true });
 
     const validationErrors = validateRunRecords(records, {
@@ -196,9 +237,9 @@ async function main(): Promise<void> {
     }
 
     const manifest = {
-      arm: arm.label,
-      armId: arm.id,
-      provider: arm.id,
+      arm: seed ? "Paired Jev and Gemini development runs" : arm.label,
+      armId: seed ? null : arm.id,
+      provider: seed ? null : arm.id,
       providerModel: records[0]?.result.provider.model ?? null,
       tasks: tasks.map((task) => task.id),
       repeat,
@@ -206,9 +247,19 @@ async function main(): Promise<void> {
       layout: arm.id === "gemini" ? layout : null,
       variantId,
       providerBudget,
+      limits,
       protocolHash: currentProtocolHash,
       corpusVersion: currentCorpusVersion,
       implementationCommit,
+      implementationSourceHash,
+      seed: seed ?? null,
+      measuredFallback: !args["no-fallback"],
+      variants: variants.map((variant) => ({
+        id: variant.id, label: variant.arm.label, provider: variant.arm.id, model: variant.provider?.model ?? null,
+        layout: variant.arm.id === "gemini" ? variant.layout : null,
+        promptHash: fingerprints.get(variant.id) ?? null,
+        threshold: variant.provider ? variant.provider.minDecision === undefined ? DEFAULT_LIMITS.minDecision : variant.provider.minDecision : null,
+      })),
       experimentManifest: MANIFEST_PATH,
       corpus: args.corpus ?? "bench/corpus/tasks.json",
       opencodeVersion: await opencodeVersion(root),
@@ -219,7 +270,7 @@ async function main(): Promise<void> {
     await writeFile(join(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     await writeFile(join(outDir, "records.json"), `${JSON.stringify(records, null, 2)}\n`);
     await writeFile(join(outDir, "records.jsonl"), `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
-    const report = buildReport(manifest, records);
+    const report = seed ? buildPairedReport(manifest, records) : buildReport(manifest, records);
     await writeFile(join(outDir, "report.md"), report);
     process.stdout.write(`\nWrote ${outDir}\n\n${report}`);
   } finally {

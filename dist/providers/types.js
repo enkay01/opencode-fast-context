@@ -8,6 +8,16 @@ export class ProviderError extends Error {
         this.status = status;
     }
 }
+export function describeProviderFailure(error) {
+    if (error instanceof ProviderError) {
+        const { status, message } = error;
+        if (status === 401 || status === 403 || status === 429)
+            return `${status}`;
+        if (/timeout|deadline/i.test(message))
+            return "timeout";
+    }
+    return "provider unavailable";
+}
 export const RELEVANCE_INSTRUCTIONS = "Is this snippet relevant context for the developer's query? " +
     "Judge whether reading it would help locate, understand, or verify the targeted behavior. " +
     "It may be one part of the relevant context rather than a complete response. Shared words or topic alone are not enough.";

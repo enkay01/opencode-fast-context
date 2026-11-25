@@ -89,3 +89,17 @@ node bench/compare.ts bench/runs/b0-validation bench/runs/jev-validation
 ```
 
 Run directories are local and gitignored because they contain repository excerpts.
+
+## Gemini request layout comparison on development tasks
+
+On November 24, 2026, three randomized repetitions per task compared Jev with both Gemini request layouts. The four tasks came from the development split and used clean, pinned ripgrep and OpenCode checkouts, a 24-candidate budget, and the same discovery and ranking limits. Ordinary-search fallback was disabled. The run manifest records the seed, source hash, variants, and prompt fingerprints.
+
+| Arm | Valid runs | Recall@5 counting provider failures as misses | Median / p95 search time (ms) | HTTP 429 / calls | Reported input tokens |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Jev | 12/12 | 1.00 | 3,930 / 5,442 | 0 / 288 | 245,428 |
+| Gemini, one request per candidate | 7/12 | 0.50 | 3,587 / 10,059 | 175 / 288 | 81,011 |
+| Gemini, one question per candidate in a shared request | 4/12 | 0.50 | 634 / 1,593 | 8 / 12 | 69,273 |
+
+The all-run times include early quota failures. Gemini's complete runs had median times of 8,818 ms for the independent requests (3 runs) and 1,081 ms for the shared request (4 runs). Each question in the shared request saw the same input and identified one candidate. `test/gemini-provider.test.ts` verifies that each returned question ID maps back to its original candidate. The experiment cannot establish retrieval parity or calibrate abstention with four tasks and these failure rates. The raw records keep candidate paths, scores, ranges, and status while omitting source excerpts.
+
+Run `node bench/run.ts --paired gemini-layouts-20261124 --split development --repeat 3 --no-fallback` with both provider keys available to the process. The original manifest, records, and generated report are under `bench/runs/gemini-layouts-20261124/` locally.
