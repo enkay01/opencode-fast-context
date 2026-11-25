@@ -29,6 +29,19 @@ export interface ProviderResolution {
 export interface ProviderOverrides {
   fetchImpl?: typeof fetch;
   endpoint?: string;
+  geminiMinDecision?: number;
+}
+
+function createProvider(kind: ProviderKind, apiKey: string, overrides: ProviderOverrides): DecisionProvider {
+  const transport = overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {};
+  return kind === "gemini"
+    ? createGeminiProvider({
+        apiKey,
+        ...transport,
+        ...(overrides.endpoint ? { endpoint: overrides.endpoint } : {}),
+        ...(overrides.geminiMinDecision === undefined ? {} : { minDecision: overrides.geminiMinDecision }),
+      })
+    : createJevProvider({ apiKey, ...transport, ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}) });
 }
 
 export function readPublicConfig(options: Record<string, unknown> | undefined): FastContextConfig {
@@ -59,17 +72,7 @@ export function resolveProvider(
   }
 
   return {
-    provider: kind === "gemini"
-      ? createGeminiProvider({
-          apiKey,
-          ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-          ...(overrides.endpoint ? { endpoint: overrides.endpoint } : {}),
-        })
-      : createJevProvider({
-          apiKey,
-          ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-          ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}),
-        }),
+    provider: createProvider(kind, apiKey, overrides),
     error: null,
     source: "env",
   };
@@ -95,17 +98,7 @@ export async function resolveProviderAsync(
   if (!storedKey) return fromEnv;
 
   return {
-    provider: kind === "gemini"
-      ? createGeminiProvider({
-          apiKey: storedKey,
-          ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-          ...(overrides.endpoint ? { endpoint: overrides.endpoint } : {}),
-        })
-      : createJevProvider({
-          apiKey: storedKey,
-          ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-          ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}),
-        }),
+    provider: createProvider(kind, storedKey, overrides),
     error: null,
     source: "store",
   };

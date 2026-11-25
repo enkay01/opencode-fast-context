@@ -36,6 +36,7 @@ function makeContext(root: string, options: { storedKey?: string; storedGeminiKe
     storage: {
       get: async () => options.savedProvider,
       set: async (_key: string, value: "jev" | "gemini") => { options.savedProvider = value; },
+      remove: async () => { delete options.savedProvider; },
     },
     location: { directory: root },
     integration: {
@@ -391,15 +392,16 @@ test("one plugin switches providers and retains the choice without mixing creden
       const dispose = await plugin.setup(first.context as never);
       const unselected = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       assert.match(unselected.content, /Select Jev or Gemini/);
-      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "gemini" }), { provider: "gemini", ok: true });
+      const instance = (await first.handlers.get("status")!({}) as { instanceID: string }).instanceID;
+      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "gemini" }), { provider: "gemini", ok: true, instanceID: instance });
       const gemini = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       assert.match(gemini.content, /status: complete/);
       assert.match(gemini.content, /provider: gemini:gemini-decision-1/);
-      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "jev" }), { provider: "jev", ok: true });
+      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "jev" }), { provider: "jev", ok: true, instanceID: instance });
       const jev = await first.tools[0]!.execute({ query: "retryDelay" }, { sessionID: SESSION });
       assert.match(jev.content, /status: complete/);
       assert.match(jev.content, /provider: jev:/);
-      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "gemini" }), { provider: "gemini", ok: true });
+      assert.deepEqual(await first.handlers.get("selectProvider")!({ provider: "gemini" }), { provider: "gemini", ok: true, instanceID: instance });
       await dispose?.();
 
       const reloaded = makeContext(fixture.root, options);
@@ -446,4 +448,42 @@ test("a key can be stored before selection, and another server instance observes
     if (previous !== undefined) process.env.GEMINI_API_KEY = previous;
     await fixture.cleanup();
   }
+});
+
+test("activation failures keep the previous provider and a separately saved target key", async (t) => {
+  const fixture = await makeFixture({});
+  t.after(fixture.cleanup);
+  const previous = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  t.after(() => { if (previous !== undefined) process.env.GEMINI_API_KEY = previous; });
+  let verified = false;
+  t.after(stubFetch({ decisions: () => verified
+    ? Response.json({ answers: { damaged: { type: "noul", noul: 1 } } })
+    : new Response("private provider response", { status: 403 }),
+  }));
+  const options = { savedProvider: "jev" as "jev" | "gemini", storedKey: "jev-credential", storedGeminiKey: "old-gemini-credential" };
+  const { context, handlers, stored } = makeContext(fixture.root, options);
+  t.after(await plugin.setup(context as never));
+  const select = () => handlers.get("selectProvider")!({ provider: "gemini" }) as Promise<{ ok: boolean; error?: string }>;
+  assert.match((await select()).error ?? "", /rejected/);
+  assert.equal(options.savedProvider, "jev");
+
+  verified = true;
+  assert.deepEqual(await handlers.get("submitKey")!({ provider: "gemini", key: "new-gemini-credential" }), { ok: true });
+  assert.equal(options.savedProvider, "jev");
+  assert.deepEqual(stored, [{ integrationID: GEMINI_INTEGRATION_ID, key: "new-gemini-credential" }]);
+
+  const set = context.storage.set;
+  context.storage.set = async () => { throw new Error("private storage error"); };
+  assert.match((await select()).error ?? "", /selection did not persist/);
+  assert.equal(options.savedProvider, "jev");
+  context.storage.set = async (key, value) => {
+    await set(key, value);
+    if (value === "gemini") throw new Error("write lost acknowledgement");
+  };
+  assert.match((await select()).error ?? "", /selection did not persist/);
+  const status = await handlers.get("status")!({}) as { provider: string };
+  assert.equal(status.provider, "jev");
+  assert.equal(options.storedGeminiKey, "new-gemini-credential");
+  assert.equal(options.storedKey, "jev-credential");
 });

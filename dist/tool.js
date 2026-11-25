@@ -1,26 +1,31 @@
 import { resolveProviderAsync, } from "./config.js";
 import { searchRepository } from "./engine/search.js";
 import { normalizeAutoInvoke } from "./guidance.js";
-import { ProviderError } from "./providers/types.js";
+import { describeProviderFailure, ProviderError } from "./providers/types.js";
 const AUTH_FAILURE_STATUSES = new Set([401, 403]);
 function isAuthFailure(error) {
     return error instanceof ProviderError && error.status !== null && AUTH_FAILURE_STATUSES.has(error.status);
 }
-/** Wraps a provider so the first HTTP 401/403 surfaces to the caller. */
-function observeAuthFailures(provider, onAuthFailure) {
-    const wrap = (fn) => async (...args) => {
+function observeRequests(provider, onAuthFailure, onOutcome) {
+    const wrap = (fn, report) => async (...args) => {
         try {
-            return await fn(...args);
+            const result = await fn(...args);
+            if (report)
+                report(result);
+            else
+                onOutcome();
+            return result;
         }
         catch (error) {
             if (isAuthFailure(error))
                 onAuthFailure(error.status ?? 0);
+            onOutcome(describeProviderFailure(error));
             throw error;
         }
     };
     return {
         ...provider,
-        score: wrap(provider.score.bind(provider)),
+        score: wrap(provider.score.bind(provider), (result) => onOutcome(result.failure)),
         ...(provider.choose ? { choose: wrap(provider.choose.bind(provider)) } : {}),
     };
 }
@@ -70,19 +75,29 @@ export async function runFastContext(options) {
     if (!resolution.provider) {
         return fallbackResult(options.query, resolution.error ?? `${selected} is not configured`);
     }
-    const runSearch = async (provider, onAuthFailure) => searchRepository({
-        root: options.root,
-        query: options.query,
-        ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
-        provider: observeAuthFailures(provider, onAuthFailure),
-        ...(options.signal ? { signal: options.signal } : {}),
-    });
+    const runSearch = async (provider, source, onAuthFailure) => {
+        let checked = false;
+        let failure;
+        const result = await searchRepository({
+            root: options.root,
+            query: options.query,
+            ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
+            provider: observeRequests(provider, onAuthFailure, (error) => {
+                checked = true;
+                failure ??= error;
+            }),
+            ...(options.signal ? { signal: options.signal } : {}),
+        });
+        if (checked && source && result.status !== "cancelled")
+            options.onProviderOutcome?.(source, failure);
+        return result;
+    };
     let authStatus = null;
     const capture = (status) => {
         if (authStatus === null)
             authStatus = status;
     };
-    let result = await runSearch(resolution.provider, capture);
+    let result = await runSearch(resolution.provider, resolution.source, capture);
     if (result.status === "fallback_required" && authStatus !== null && resolution.source === "store") {
         try {
             await credentials?.discardStored?.();
@@ -96,7 +111,7 @@ export async function runFastContext(options) {
                 const retry = await resolve();
                 if (retry.provider) {
                     authStatus = null;
-                    result = await runSearch(retry.provider, capture);
+                    result = await runSearch(retry.provider, retry.source, capture);
                     if (result.status === "fallback_required" && authStatus !== null) {
                         return { ...result, reason: authFailureReason(retry.source, authStatus, selected) };
                     }

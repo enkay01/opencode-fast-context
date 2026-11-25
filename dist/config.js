@@ -1,6 +1,17 @@
 import { createJevProvider } from "./providers/systemone.js";
 import { createGeminiProvider } from "./providers/gemini.js";
 import { normalizeAutoInvoke } from "./guidance.js";
+function createProvider(kind, apiKey, overrides) {
+    const transport = overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {};
+    return kind === "gemini"
+        ? createGeminiProvider({
+            apiKey,
+            ...transport,
+            ...(overrides.endpoint ? { endpoint: overrides.endpoint } : {}),
+            ...(overrides.geminiMinDecision === undefined ? {} : { minDecision: overrides.geminiMinDecision }),
+        })
+        : createJevProvider({ apiKey, ...transport, ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}) });
+}
 export function readPublicConfig(options) {
     const config = { autoInvoke: normalizeAutoInvoke(options?.autoInvoke) };
     if (options?.decisionProvider === "jev") {
@@ -25,17 +36,7 @@ export function resolveProvider(env = process.env, overrides = {}, kind = "jev")
         };
     }
     return {
-        provider: kind === "gemini"
-            ? createGeminiProvider({
-                apiKey,
-                ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-                ...(overrides.endpoint ? { endpoint: overrides.endpoint } : {}),
-            })
-            : createJevProvider({
-                apiKey,
-                ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-                ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}),
-            }),
+        provider: createProvider(kind, apiKey, overrides),
         error: null,
         source: "env",
     };
@@ -55,17 +56,7 @@ export async function resolveProviderAsync(env = process.env, overrides = {}, re
     if (!storedKey)
         return fromEnv;
     return {
-        provider: kind === "gemini"
-            ? createGeminiProvider({
-                apiKey: storedKey,
-                ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-                ...(overrides.endpoint ? { endpoint: overrides.endpoint } : {}),
-            })
-            : createJevProvider({
-                apiKey: storedKey,
-                ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
-                ...(overrides.endpoint ? { baseUrl: overrides.endpoint } : {}),
-            }),
+        provider: createProvider(kind, storedKey, overrides),
         error: null,
         source: "store",
     };

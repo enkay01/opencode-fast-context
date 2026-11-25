@@ -200,89 +200,40 @@ finish() {
 
 run_wizard() {
 
-TOTAL_STAGES=6
+TOTAL_STAGES=3
 
 banner "Gemini Decisions self-test"
 
 stage "Check API billing and data use"
 say "Google AI Pro does not set the Gemini API billing tier for a project."
-say "This wizard never reads your key; paste it only into OpenCode's masked prompt."
+say "Only the synthetic test fixture is sent to the Decisions API."
 open_url "https://aistudio.google.com/billing"
-step "In AI Studio, check the project's billing tier and decide whether to use its free or paid API tier."
 open_url "https://aistudio.google.com/docs/terms"
-step "Read the data-use terms. Use only this public test checkout if the project is on the free tier."
-confirm "Have you checked the API tier and terms for this test?" || return 1
+confirm "Have you checked the API tier and data-use terms?" || return 1
 
-stage "Create a Gemini API key"
+stage "Get a Gemini API key"
 open_url "https://aistudio.google.com/api-keys"
-step "Sign in, open Dashboard > API Keys, then choose Create API key (or an existing auth key)."
-step "Select the project whose billing tier you just checked, then copy the key to your clipboard."
-say "Do not paste the key here, into chat, a shell command, a file, or plugin options."
+step "In Google AI Studio, create or choose a key in the project you checked."
+step "Copy it to your clipboard. Paste it only into OpenCode's masked key prompt."
 confirm "Is the key ready on your clipboard?" || return 1
 
-stage "Prepare a clean PR checkout"
-command -v git >/dev/null || { say "git is required."; return 1; }
-command -v npm >/dev/null || { say "npm is required."; return 1; }
-command -v opencode >/dev/null || { say "OpenCode 2 is required."; return 1; }
-TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fast-context-gemini-pr6.XXXXXX")
-TEST_CHECKOUT="$TEST_ROOT/checkout"
-say "Cloning the draft PR branch into $TEST_CHECKOUT"
-git clone --depth=1 --branch codex/gemini-decisions-provider \
-  https://github.com/enkay01/opencode-fast-context.git "$TEST_CHECKOUT"
-(
-  cd "$TEST_CHECKOUT"
-  npm ci
-  npm run verify:release
-  npm run setup:opencode -- --scope project
-)
-say "Plugin ID: fast-context; scope: this test checkout only."
-pause "Press Enter to prepare the single-plugin TUI launcher."
-
-stage "Prepare one plugin entrypoint"
-cat > "$TEST_ROOT/run-gemini-opencode.sh" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-mkdir -p "$ROOT/xdg-config"
-cd "$ROOT/checkout"
-XDG_CONFIG_HOME="$ROOT/xdg-config" opencode "$@"
-SH
-chmod +x "$TEST_ROOT/run-gemini-opencode.sh"
-say "The launcher isolates global OpenCode plugin configuration to prevent duplicate fast-context entries."
-pause "Press Enter to open the OpenCode TUI."
-
-stage "Select Gemini and try one search"
-say "OpenCode will start in the clean checkout. Nothing is recorded during auth."
-step "Run /fast-context provider and select Gemini Decisions. Paste the key into its masked prompt."
-step "Run /fast-context auth status; it should show Gemini selected and both provider credential states."
-step "Check the sidebar says Fast Context · gemini · connected. A stored key alone is not a connection."
-step "Ask: Use fast_context_search to locate the stale credential removal function. Show the provider and cited file paths."
-step "Confirm the tool output reports provider: gemini:gemini-decision-1 rather than provider: not configured."
-step "Run /fast-context provider, select Jev, cancel its key prompt, then select Gemini again without restarting."
-step "Exit OpenCode when you have inspected the result."
-"$TEST_ROOT/run-gemini-opencode.sh"
-pause "Press Enter after reviewing the TUI result."
-confirm "Did status show Gemini selected and connected, and did the search report Gemini?" || {
-  say "Setup is incomplete. Reopen the launcher, inspect /fast-context auth status, and retry /fast-context provider."
-  say "If it still fails, report only status and provider labels; never paste the key."
+stage "Verify Gemini in OpenCode"
+local checkout
+checkout="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+command -v python3 >/dev/null || { say "Install Python 3 and retry."; return 1; }
+command -v opencode >/dev/null || { say "Install OpenCode 2 and retry."; return 1; }
+command -v rg >/dev/null || { say "Install ripgrep and retry."; return 1; }
+if [[ ! -f "$checkout/node_modules/typescript/bin/tsc" ]]; then
+  (cd "$checkout" && npm ci) || return 1
+fi
+say "OpenCode starts with one Fast Context plugin in a disposable profile."
+say "The test opens /fast-context auth gemini, checks server status, then runs fast_context_search."
+if ! python3 "$checkout/scripts/validation/tui.py" --wizard; then
+  warn "Gemini setup did not pass. Check the status or tool error above, then rerun the wizard."
   return 1
-}
+fi
+say "Gemini setup passed. OpenCode status and the search agreed on the provider and instance."
 
-stage "Review and keep the test checkout"
-say "Test checkout: $TEST_CHECKOUT"
-say "Reopen this same test TUI with: $TEST_ROOT/run-gemini-opencode.sh"
-say "If the request fails, note only the HTTP status and tool status; never copy the key or source excerpts into a report."
-say "To remove this project plugin entry, run from the test checkout:"
-say "npm run setup:opencode -- --remove --scope project"
-say "The stored Gemini key is separate; /fast-context auth revoke removes it while Gemini is selected."
-say "The recording plan is in docs/GEMINI_TUI_RECORDING_PLAN.md. Start recording only after auth."
-pause "Press Enter to finish."
-
-finish
-say "Test checkout: $TEST_CHECKOUT"
-say "OpenCode test launcher: $TEST_ROOT/run-gemini-opencode.sh"
-say "Plugin: fast-context (project scope). Remove with:"
-say "(cd '$TEST_CHECKOUT' && npm run setup:opencode -- --remove --scope project)"
 }
 
 run_wizard "$@"; exit

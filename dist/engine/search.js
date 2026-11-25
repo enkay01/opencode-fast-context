@@ -1,6 +1,7 @@
 import { DEFAULT_LIMITS } from "../types.js";
 import { dirname } from "node:path";
 import { discover, readCandidateExcerpt } from "./discover.js";
+import { ProviderError } from "../providers/types.js";
 import { sanitizeForProvider } from "../providers/redact.js";
 export async function searchRepository(options) {
     const started = Date.now();
@@ -165,7 +166,8 @@ export async function searchRepository(options) {
             catch (error) {
                 rankingMs = Date.now() - rankingStart;
                 status = "fallback_required";
-                reason = `decision provider ${options.provider.id} failed: ${error.message}`;
+                const detail = error instanceof ProviderError ? error.message : "invalid or unavailable decision response";
+                reason = `decision provider ${options.provider.id} failed: ${detail}`;
                 ranked = lexicalPool.map((candidate) => ({ ...candidate, decisionScore: null }));
             }
         }

@@ -11,6 +11,8 @@ export interface ScoreResult {
   model: string;
   /** Candidates that could not be scored before the deadline. */
   skipped: number;
+  /** First failed request when other candidates could still be scored. */
+  failure?: ProviderFailure;
 }
 
 export interface ScoreOptions {
@@ -55,6 +57,17 @@ export class ProviderError extends Error {
     this.providerId = providerId;
     this.status = status;
   }
+}
+
+export type ProviderFailure = "401" | "403" | "429" | "timeout" | "provider unavailable";
+
+export function describeProviderFailure(error: unknown): ProviderFailure {
+  if (error instanceof ProviderError) {
+    const { status, message } = error;
+    if (status === 401 || status === 403 || status === 429) return `${status}`;
+    if (/timeout|deadline/i.test(message)) return "timeout";
+  }
+  return "provider unavailable";
 }
 
 export const RELEVANCE_INSTRUCTIONS =

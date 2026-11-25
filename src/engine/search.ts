@@ -1,7 +1,7 @@
 import { DEFAULT_LIMITS, type Evidence, type EvidenceRange, type Limits, type ProviderInfo, type SearchResult, type SearchStatus } from "../types.ts";
 import { dirname } from "node:path";
 import { discover, readCandidateExcerpt, type Candidate } from "./discover.ts";
-import type { DecisionProvider } from "../providers/types.ts";
+import { ProviderError, type DecisionProvider } from "../providers/types.ts";
 import { sanitizeForProvider } from "../providers/redact.ts";
 
 export interface SearchOptions {
@@ -212,7 +212,8 @@ export async function searchRepository(options: SearchOptions): Promise<SearchRe
       } catch (error) {
         rankingMs = Date.now() - rankingStart;
         status = "fallback_required";
-        reason = `decision provider ${options.provider.id} failed: ${(error as Error).message}`;
+        const detail = error instanceof ProviderError ? error.message : "invalid or unavailable decision response";
+        reason = `decision provider ${options.provider.id} failed: ${detail}`;
         ranked = lexicalPool.map((candidate) => ({ ...candidate, decisionScore: null })) as RankedCandidate[];
       }
     }
